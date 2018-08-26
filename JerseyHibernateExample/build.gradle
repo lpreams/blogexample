@@ -1,0 +1,18 @@
+apply plugin: 'java-library'
+
+repositories {
+	jcenter()
+}
+
+dependencies {
+	// Jersey (JAX-RS)
+	compile group: 'org.glassfish.jersey.containers', name: 'jersey-container-grizzly2-http', version: '2.27'
+	compile group: 'org.glassfish.jersey.inject', name: 'jersey-hk2', version: '2.27'
+	
+	// Hibernate (JPA) 
+	compile group: 'org.hibernate', name: 'hibernate-core', version: '5.3.5.Final'
+	
+	// H2 database
+	compile group: 'com.h2database', name: 'h2', version: '1.4.197'
+}
+
