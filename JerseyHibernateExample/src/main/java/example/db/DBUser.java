@@ -38,11 +38,13 @@ public class DBUser {
 		public final String email;
 		public final String name;
 		public final long timestamp;
+		public final String password;
 		public FlatUser(DBUser user) {
 			this.id = user.id;
 			this.email = user.email;
 			this.name = user.name;
 			this.timestamp = user.timestamp;
+			this.password = user.password;
 		}
 	}
 	public FlatUser flatten() {

@@ -149,6 +149,37 @@ public class DB {
 		return post;
 	}
 	
+	public static FlatPost addPost(String title, String body, String email, String password) throws DBNotFoundException, DBRollbackException {
+		Session session = sessionFactory.openSession();
+		
+		DBUser user = session.createQuery("from DBUser user where user.email='" + email + "'", DBUser.class).uniqueResult();
+		if (user==null) throw new DBNotFoundException();
+		
+		DBPost post = new DBPost();
+		post.setAuthor(user);
+		post.setBody(body);
+		post.setDate(System.currentTimeMillis());
+		post.setTitle(title);
+		
+		session.beginTransaction();
+		long id;
+		try {
+			id = (long) session.save(post);
+			session.getTransaction().commit();
+		} catch (Exception e) {
+			session.getTransaction().rollback();
+			throw new DBRollbackException();
+		}
+		
+		post.setId(id);
+		
+		FlatPost ret = new FlatPost(post);
+		
+		session.close();
+		
+		return ret;
+	}
+	
 	public static List<FlatPost> getPostsByUserId(long id) {
 		Session session = sessionFactory.openSession();
 		
@@ -172,6 +203,14 @@ public class DB {
 
 		public DBCollisionException() {
 			super("db collision detected");
+		}
+	}
+	
+	public static class DBRollbackException extends Exception {
+		private static final long serialVersionUID = -3413135035628577683L;
+
+		public DBRollbackException() {
+			super("db commit failed, was rolled back");
 		}
 	}
 }

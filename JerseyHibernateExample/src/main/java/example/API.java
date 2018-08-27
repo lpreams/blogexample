@@ -16,6 +16,7 @@ import javax.ws.rs.core.Response;
 
 import example.DB.DBCollisionException;
 import example.DB.DBNotFoundException;
+import example.DB.DBRollbackException;
 import example.db.DBPost.FlatPost;
 import example.db.DBUser.FlatUser;
 
@@ -91,13 +92,34 @@ public class API {
 	@POST
 	@Path("/createaccount") 
 	public static Response createAccountPost(@FormParam("email") String email, @FormParam("name") String name, @FormParam("password1") String password1, @FormParam("password2") String password2) {
-		if (!password1.equals(password2)) return Response.ok("passwords do not match").build();
+		if (password1.compareTo(password2) != 0) return Response.ok("passwords do not match").build();
 		try {
 			DB.addUser(email, password1, name);
 		} catch (DBCollisionException e) {
 			return Response.ok("email address already in use").build(); 
 		}
 		return Response.seeOther(URI.create("/")).build(); // redirect to homepage on success
+	}
+	
+	@GET
+	@Path("/createpost")
+	public static Response createPostGet() {
+		return Response.ok(textFileToString("createpost.html")).build();
+	}
+	
+	@POST
+	@Path("/createpost") 
+	public static Response createPostPost(@FormParam("title") String title, @FormParam("body") String body, @FormParam("email") String email, @FormParam("password") String password) {
+		FlatPost post;
+		try {
+			post = DB.addPost(title, body, email, password);
+		} catch (DBNotFoundException e) {
+			return Response.ok("Incorrect email or password").build();
+		} catch (DBRollbackException e) {
+			return Response.ok(e.getMessage()).build();
+		}
+		
+		return Response.seeOther(URI.create("/getpost/" + post.id)).build(); // redirect to the new post
 	}
 	
 	/**
