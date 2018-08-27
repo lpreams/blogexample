@@ -2,15 +2,19 @@ package example;
 
 import java.io.File;
 import java.io.FileNotFoundException;
+import java.net.URI;
 import java.util.Date;
 import java.util.List;
 import java.util.Scanner;
 
+import javax.ws.rs.FormParam;
 import javax.ws.rs.GET;
+import javax.ws.rs.POST;
 import javax.ws.rs.Path;
 import javax.ws.rs.PathParam;
 import javax.ws.rs.core.Response;
 
+import example.DB.DBCollisionException;
 import example.DB.DBNotFoundException;
 import example.db.DBPost.FlatPost;
 import example.db.DBUser.FlatUser;
@@ -76,6 +80,24 @@ public class API {
 				.replace("$BLOGUSERNAME", user.name)
 				.replace("$BLOGPOSTS", sb.toString())
 			).build();
+	}
+	
+	@GET
+	@Path("/createaccount")
+	public static Response createAccountGet() {
+		return Response.ok(textFileToString("createaccount.html")).build();
+	}
+	
+	@POST
+	@Path("/createaccount") 
+	public static Response createAccountPost(@FormParam("email") String email, @FormParam("name") String name, @FormParam("password1") String password1, @FormParam("password2") String password2) {
+		if (!password1.equals(password2)) return Response.ok("passwords do not match").build();
+		try {
+			DB.addUser(email, password1, name);
+		} catch (DBCollisionException e) {
+			return Response.ok("email address already in use").build(); 
+		}
+		return Response.seeOther(URI.create("/")).build(); // redirect to homepage on success
 	}
 	
 	/**
