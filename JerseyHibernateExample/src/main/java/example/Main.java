@@ -15,6 +15,12 @@ import org.glassfish.grizzly.http.server.HttpServer;
 import org.glassfish.jersey.grizzly2.httpserver.GrizzlyHttpServerFactory;
 import org.glassfish.jersey.server.ResourceConfig;
 
+/**
+ * This is a change
+ * @author lpreams
+ *
+ */
+
 public class Main {
 	public static void main(String[] args) {
 		DB.startDatabaseConnection();
