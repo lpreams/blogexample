@@ -135,6 +135,7 @@ public class DB {
 		return list;
 	}
 	
+	//Retrieve post based on user ID
 	public static FlatPost getPostById(long id) throws DBNotFoundException {
 		Session session = sessionFactory.openSession();
 		
@@ -149,6 +150,7 @@ public class DB {
 		return post;
 	}
 	
+	//add a post with a Title, Body, Message
 	public static FlatPost addPost(String title, String body, String email, String password) throws DBNotFoundException, DBRollbackException {
 		Session session = sessionFactory.openSession();
 		
@@ -180,6 +182,7 @@ public class DB {
 		return ret;
 	}
 	
+	//retrieve Posts based on the athor of the post
 	public static List<FlatPost> getPostsByUserId(long id) {
 		Session session = sessionFactory.openSession();
 		
@@ -189,6 +192,9 @@ public class DB {
 		session.close(); 
 		return list;
 	}
+	
+	
+	//Exception handling
 	
 	public static class DBNotFoundException extends Exception {
 		private static final long serialVersionUID = -3413135035628577683L;
