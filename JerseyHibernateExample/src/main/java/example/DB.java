@@ -50,7 +50,7 @@ public class DB {
 		// tell Hibernate which classes represent database tables
 		configuration.addAnnotatedClass(DBUser.class);
 		configuration.addAnnotatedClass(DBPost.class);
-		configuration.addAnnotatedClass(DBComment.class);
+
 		StandardServiceRegistryBuilder builder = new StandardServiceRegistryBuilder().applySettings(configuration.getProperties()); // apply default settings 
 		return configuration.buildSessionFactory(builder.build()); // build the SessionFactory
 	}
@@ -196,23 +196,17 @@ public class DB {
 		return ret;
 	}
 	
-<<<<<<< HEAD
 	//retrieve Posts based on the athor of the post
-=======
-	
->>>>>>> pr/3
 	public static List<FlatPost> getPostsByUserId(long id) {
 		Session session = sessionFactory.openSession();
 		
-		List<DBPost> result = session.createQuery("from DBPost post where post.author.id="+id, DBPost.class).list(); 
+		List<DBPost> result = session.createQuery("from DBPost post where post.author.id="+id, DBPost.class).list(); // this is HQL, Hibernate Query Language. It's like SQL but simpler, specific to Hibernate, and works with any Hibernate-supported database
 		
 		List<FlatPost> list = result.stream().map(post->post.flatten()).collect(Collectors.toList());
 		session.close(); 
 		return list;
 	}
 	
-<<<<<<< HEAD
-<<<<<<< HEAD
 	/**
 	 * 
 	 * @param email
@@ -238,7 +232,16 @@ public class DB {
 		session.beginTransaction();
 		session.merge(user);
 		try {
-=======
+			session.getTransaction().commit();
+		} catch (Exception e) {
+			session.getTransaction().rollback();
+			throw new DBRollbackException();
+		} finally {
+			session.close();
+		}
+		
+		return userID;
+	}
 	
 	public static  List<FlatComment> getAllComments() {
 		Session session = sessionFactory.openSession();
@@ -297,26 +300,10 @@ public class DB {
 		long id;
 		try {
 			id = (long) session.save(comment);
->>>>>>> pr/3
 			session.getTransaction().commit();
 		} catch (Exception e) {
 			session.getTransaction().rollback();
 			throw new DBRollbackException();
-<<<<<<< HEAD
-		} finally {
-			session.close();
-		}
-		
-		return userID;
-	}
-	
-	
-	/******************************* Exceptions *******************************/
-=======
-	
-	//Exception handling
->>>>>>> refs/remotes/origin/master
-=======
 		}
 		
 		comment.setId(id);
@@ -353,13 +340,7 @@ public class DB {
 	}
 	
 	
-	
-	
-	
-	
-	
-	
->>>>>>> pr/3
+	/******************************* Exceptions *******************************/
 	
 	public static class DBNotFoundException extends Exception {
 		private static final long serialVersionUID = -3413135035628577683L;
@@ -389,11 +370,7 @@ public class DB {
 		private static final long serialVersionUID = -3413135035628577683L;
 
 		public DBIncorrectPasswordException() {
-<<<<<<< HEAD
 			super("password incorrect, no changes made");
-=======
-			super("incorrect password");
->>>>>>> pr/3
 		}
 	}
 }
