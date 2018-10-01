@@ -30,6 +30,8 @@ public class DBUser {
 	
 	private String password; // user's password (irl this should be salted and hashed, but for simplicity we'll just store plaintext passwords for now
 	
+	private int bgColor; // User's preference of background color
+	
 	/**
 	 * Use this class to return objects from the database, classes retried from Hibernate are transient and can become unreliable after session is closed
 	 */
@@ -39,12 +41,14 @@ public class DBUser {
 		public final String name;
 		public final long timestamp;
 		public final String password;
+		public final int bgColor;
 		public FlatUser(DBUser user) {
 			this.id = user.id;
 			this.email = user.email;
 			this.name = user.name;
 			this.timestamp = user.timestamp;
 			this.password = user.password;
+			this.bgColor = user.bgColor;
 		}
 	}
 	public FlatUser flatten() {
@@ -95,6 +99,14 @@ public class DBUser {
 
 	public void setPassword(String password) {
 		this.password = password;
+	}
+	
+	public int getBgColor() {
+		return bgColor;
+	}
+	
+	public void setBgColor(int bgColor) {
+		this.bgColor = bgColor;
 	}
 	
 	
