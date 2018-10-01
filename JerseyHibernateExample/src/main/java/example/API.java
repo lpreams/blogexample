@@ -15,8 +15,10 @@ import javax.ws.rs.PathParam;
 import javax.ws.rs.core.Response;
 
 import example.DB.DBCollisionException;
+import example.DB.DBIncorrectPasswordException;
 import example.DB.DBNotFoundException;
 import example.DB.DBRollbackException;
+import example.db.DBComment.FlatComment;
 import example.db.DBPost.FlatPost;
 import example.db.DBUser.FlatUser;
 
@@ -48,11 +50,22 @@ public class API {
 			return Response.ok("Not found: " + id).build();
 		}
 		
+		StringBuilder sb = new StringBuilder();
+		List<FlatComment> list = DB.getCommentsOnPost(id);
+		
+		for (FlatComment com : list) {
+			sb.append("<p>" + com.body + "<br/><br/>\n");
+			sb.append("Posted by " + com.author.name + " on " + new Date(com.date) + "\n");
+		}
+
+		
 		return Response.ok(page
 				.replace("$BLOGPOSTTITLE", post.title)
 				.replace("$BLOGPOSTBODY", post.body)
 				.replace("$BLOGPOSTUSERID", Long.toString(post.author.id))
 				.replace("$BLOGPOSTUSERNAME", post.author.name)
+				.replace("$BLOGCOMMENTS", sb.toString())
+				.replace("$POSTID", Long.toString(id))
 				.replace("$BLOGPOSTDATE", new Date(post.date).toString())
 			).build();
 	}
@@ -121,6 +134,22 @@ public class API {
 		
 		return Response.seeOther(URI.create("/getpost/" + post.id)).build(); // redirect to the new post
 	}
+	
+	@POST
+	@Path("/addcomment/{id}")
+	public static Response addComment(@PathParam("id") long id, @FormParam("email") String email, @FormParam("password") String password, @FormParam("body") String body) {
+		try {
+			DB.addComment(body, email, password, id);
+		} catch (DBNotFoundException e) {
+			return Response.ok("Email not found").build();
+		} catch (DBRollbackException e) {
+			return Response.ok("Rollback (should never happen)").build();
+		} catch (DBIncorrectPasswordException e) {
+			return Response.ok("Incorrect password").build();
+		}
+		return Response.seeOther(URI.create("/getpost/"+id)).build();
+	}
+	
 	
 	/**
 	 * Convert a text file in src/main/resources to a String

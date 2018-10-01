@@ -12,6 +12,8 @@ import org.hibernate.SessionFactory;
 import org.hibernate.boot.registry.StandardServiceRegistryBuilder;
 import org.hibernate.cfg.Configuration;
 
+import example.db.DBComment;
+import example.db.DBComment.FlatComment;
 import example.db.DBPost;
 import example.db.DBPost.FlatPost;
 import example.db.DBUser;
@@ -48,7 +50,7 @@ public class DB {
 		// tell Hibernate which classes represent database tables
 		configuration.addAnnotatedClass(DBUser.class);
 		configuration.addAnnotatedClass(DBPost.class);
-
+		configuration.addAnnotatedClass(DBComment.class);
 		StandardServiceRegistryBuilder builder = new StandardServiceRegistryBuilder().applySettings(configuration.getProperties()); // apply default settings 
 		return configuration.buildSessionFactory(builder.build()); // build the SessionFactory
 	}
@@ -180,15 +182,121 @@ public class DB {
 		return ret;
 	}
 	
+	
 	public static List<FlatPost> getPostsByUserId(long id) {
 		Session session = sessionFactory.openSession();
 		
-		List<DBPost> result = session.createQuery("from DBPost post where post.author.id="+id, DBPost.class).list(); // this is HQL, Hibernate Query Language. It's like SQL but simpler, specific to Hibernate, and works with any Hibernate-supported database
+		List<DBPost> result = session.createQuery("from DBPost post where post.author.id="+id, DBPost.class).list(); 
 		
 		List<FlatPost> list = result.stream().map(post->post.flatten()).collect(Collectors.toList());
 		session.close(); 
 		return list;
 	}
+	
+	
+	public static  List<FlatComment> getAllComments() {
+		Session session = sessionFactory.openSession();
+		
+		CriteriaBuilder cb = session.getCriteriaBuilder(); 
+		
+		CriteriaQuery<DBComment> query = cb.createQuery(DBComment.class); 
+		Root<DBComment> root = query.from(DBComment.class); 
+		query.select(root); 
+		List<DBComment> result = session.createQuery(query).list();
+		
+		List<FlatComment> list = result.stream().map(comment->comment.flatten()).collect(Collectors.toList()); // map DBComment to FlatComment, again, make sure to call flatten() before closing the session
+		session.close(); 
+		return list;
+	}
+	
+	
+	
+	
+	public static FlatComment getCommentById(long id) throws DBNotFoundException {
+		Session session = sessionFactory.openSession();
+		
+		DBComment result = session.get(DBComment.class, id);
+		
+		if (result == null) throw new DBNotFoundException();
+		
+		FlatComment comment = result.flatten();
+		
+		session.close();
+		
+		return comment;
+	}
+	
+	
+	
+	
+	
+	
+	public static FlatComment addComment(String body, String email, String password, long postID) throws DBNotFoundException, DBRollbackException, DBIncorrectPasswordException{
+		Session session = sessionFactory.openSession();
+		
+		DBUser user = session.createQuery("from DBUser user where user.email='" + email + "'", DBUser.class).uniqueResult();
+		if (user==null) throw new DBNotFoundException();
+		
+		if (!user.getPassword().equals(password)) throw new DBIncorrectPasswordException();
+		
+		DBPost post = session.createQuery("from DBPost post where post.id="+postID, DBPost.class).uniqueResult();
+		
+		DBComment comment = new DBComment();
+		comment.setAuthor(user);
+		comment.setBody(body);
+		comment.setDate(System.currentTimeMillis());
+		comment.setPost(post);
+		
+		session.beginTransaction();
+		long id;
+		try {
+			id = (long) session.save(comment);
+			session.getTransaction().commit();
+		} catch (Exception e) {
+			session.getTransaction().rollback();
+			throw new DBRollbackException();
+		}
+		
+		comment.setId(id);
+		
+		FlatComment ret = new FlatComment(comment);
+		
+		session.close();
+		
+		return ret;
+	}
+	
+	
+	
+	
+	public static List<FlatComment> getCommentsByUserId(long id) {
+		Session session = sessionFactory.openSession();
+		
+		List<DBComment> result = session.createQuery("from DBComment comment where comment.author.id="+id, DBComment.class).list(); 
+		
+		List<FlatComment> list = result.stream().map(comment->comment.flatten()).collect(Collectors.toList());
+		session.close(); 
+		return list;
+	}
+	
+	/**
+	 * Returns all comments on post with id
+	 * @param postID id of the post for which to get comments
+	 * @return
+	 */
+	public static List<FlatComment> getCommentsOnPost(long postID) {
+		Session session = sessionFactory.openSession();
+		List<DBComment> list = session.createQuery("from DBComment comment where comment.post.id=" + postID, DBComment.class).list();
+		return list.stream().map(FlatComment::new).collect(Collectors.toList());
+	}
+	
+	
+	
+	
+	
+	
+	
+	
 	
 	public static class DBNotFoundException extends Exception {
 		private static final long serialVersionUID = -3413135035628577683L;
@@ -211,6 +319,14 @@ public class DB {
 
 		public DBRollbackException() {
 			super("db commit failed, was rolled back");
+		}
+	}
+	
+	public static class DBIncorrectPasswordException extends Exception {
+		private static final long serialVersionUID = -3413135035628577683L;
+
+		public DBIncorrectPasswordException() {
+			super("incorrect password");
 		}
 	}
 }
