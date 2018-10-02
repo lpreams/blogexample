@@ -50,6 +50,7 @@ public class DB {
 		// tell Hibernate which classes represent database tables
 		configuration.addAnnotatedClass(DBUser.class);
 		configuration.addAnnotatedClass(DBPost.class);
+		configuration.addAnnotatedClass(DBComment.class);
 
 		StandardServiceRegistryBuilder builder = new StandardServiceRegistryBuilder().applySettings(configuration.getProperties()); // apply default settings 
 		return configuration.buildSessionFactory(builder.build()); // build the SessionFactory
