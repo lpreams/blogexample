@@ -264,7 +264,7 @@ public class API {
 		
 		StringBuilder loginBox = new StringBuilder();
 		loginBox.append("<div style=\"outline: 1px solid; float: right; text-align: center; margin: 2px; padding: 2px; max-width: 40%;\">\n");
-		loginBox.append("<h2>Blog Project</h2>\n");
+		loginBox.append("<h2><a href=/>Blog Project</a></h2>\n");
 		if (user == null) loginBox.append("<p><a href=/login>Log in</a></p><p><a href=/createaccount>Create account</a></p>");
 		else loginBox.append("<p>Logged in as <a href=/useraccount>" + escape(user.name) + "</a></p><p><a href=/logout>Log out</a></p>\n");
 		loginBox.append("</div>");
