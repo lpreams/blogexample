@@ -50,7 +50,7 @@ public class DBPost {
 			this.title = user.title;
 			this.body = user.body;
 			this.date = user.date;
-			this.author = new FlatUser(user.getAuthor());
+			this.author = user.getAuthor().flatten();
 		}
 	}
 	public FlatPost flatten() {

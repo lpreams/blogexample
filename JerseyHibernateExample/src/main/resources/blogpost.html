@@ -1,7 +1,8 @@
 <!DOCTYPE html>
 <html lang="en">
 <head><title>$BLOGPOSTTITLE</title></head>
-<body>
+<body style="background-color:#$BGCOLOR">
+$LOGINBOX
 <h1>$BLOGPOSTTITLE</h1>
 <p>Posted by <a href=/getuser/$BLOGPOSTUSERID>$BLOGPOSTUSERNAME</a> on $BLOGPOSTDATE</p>
 <hr/>
@@ -11,9 +12,7 @@ $BLOGCOMMENTS
 <hr/>
 <h2>Add a comment</h2>
 <form action= "/addcomment/$POSTID" method="post">
-	<p>Email: <input type= "text" name= "email" size="100" maxlength="255"/></p>
-	<p>Password: <input type= "password" name= "password" size="100" maxlength="255"/></p>
-	<p>Body:<br/><textarea style="width:100%;" name= "body" rows= "20" maxlength="10000"></textarea></p>
+	<p><textarea style="width:100%;" name= "body" rows= "20" maxlength="10000"></textarea></p>
 	<input type= "submit" value= "Submit"/>
 </form>
 </body>

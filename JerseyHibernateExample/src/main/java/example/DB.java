@@ -1,11 +1,14 @@
 package example;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Random;
 import java.util.stream.Collectors;
 
 import javax.persistence.criteria.CriteriaBuilder;
 import javax.persistence.criteria.CriteriaQuery;
 import javax.persistence.criteria.Root;
+import javax.ws.rs.core.Cookie;
 
 import org.hibernate.Session;
 import org.hibernate.SessionFactory;
@@ -14,6 +17,7 @@ import org.hibernate.cfg.Configuration;
 
 import example.db.DBComment;
 import example.db.DBComment.FlatComment;
+import example.db.DBLoginSession;
 import example.db.DBPost;
 import example.db.DBPost.FlatPost;
 import example.db.DBUser;
@@ -51,6 +55,7 @@ public class DB {
 		configuration.addAnnotatedClass(DBUser.class);
 		configuration.addAnnotatedClass(DBPost.class);
 		configuration.addAnnotatedClass(DBComment.class);
+		configuration.addAnnotatedClass(DBLoginSession.class);
 
 		StandardServiceRegistryBuilder builder = new StandardServiceRegistryBuilder().applySettings(configuration.getProperties()); // apply default settings 
 		return configuration.buildSessionFactory(builder.build()); // build the SessionFactory
@@ -71,6 +76,106 @@ public class DB {
 		return flatUser; 
 	}
 	
+
+	/**
+	 * @param token
+	 * @return ****null if user does not exist!!****
+	 */
+	public static FlatUser getUserByToken(Cookie token) {
+		Session session = sessionFactory.openSession(); // open connection to database
+		DBUser user = getUserByToken(session, token);
+		if (user == null) return null;
+		FlatUser flatUser = user.flatten();
+		session.close();
+		return flatUser;
+	}
+	
+	/**
+	 * 
+	 * @param token
+	 * @param session
+	 * @return null if user does not exist or token is null, else the user with that token
+	 */
+	private static DBUser getUserByToken(Session session, Cookie token) {
+		if (token == null) return null;
+		if (token.getValue() == null) return null;
+		if (token.getValue().trim().length() == 0) return null;
+		
+		List<DBLoginSession> list = session.createQuery("from DBLoginSession ls where ls.token='" + token.getValue() + "'",DBLoginSession.class).list(); 
+		if (list.size() == 0) return null;
+		DBUser user = list.get(0).getUser(); 
+		try {
+			session.beginTransaction();
+			list.get(0).setLastActivity(System.currentTimeMillis());
+			session.merge(list.get(0));
+			session.getTransaction().commit();
+		} catch (Exception e) {
+			session.getTransaction().rollback();
+			//throw new DBRollbackException(); // don't throw a rollback exception here, just because it's not that important, and doing so would make code everywhere else ugly
+		}
+		return user;
+	}
+	
+	/**
+	 * Creates a new login session
+	 * @param email email address of user
+	 * @param password password of user to be tested
+	 * @return String containing new login token
+	 * @throws DBNotFoundException 
+	 * @throws DBIncorrectPasswordException 
+	 * @throws DBRollbackException 
+	 */
+	public static String createLoginSession(String email, String password) throws DBNotFoundException, DBIncorrectPasswordException, DBRollbackException {
+		Session session = sessionFactory.openSession();
+		
+		DBUser user = getUserByEmail(session, email);
+		if (user == null) throw new DBNotFoundException(); // check user exists
+
+		if (!user.getPassword().equals(password)) throw new DBIncorrectPasswordException(); // check password
+		
+		DBLoginSession login = createLoginSession(session, user);
+		
+		String token = login.getToken();
+		
+		session.close();
+		
+		return token;
+	}
+	
+	/**
+	 * Deletes a login session (ie logs the user out)
+	 * @param token
+	 */
+	public static void deleteLoginSession(Cookie token) {
+		Session session = sessionFactory.openSession();
+		
+		List<DBLoginSession> list = session.createQuery("from DBLoginSession ls where ls.token='" + token.getValue() + "'",DBLoginSession.class).list(); 
+		try {
+			session.beginTransaction();
+			for (DBLoginSession login : list) session.delete(login);
+			session.getTransaction().commit();
+		} catch (Exception e) {
+			session.getTransaction().rollback();
+		}
+		
+		session.close();
+	}
+	
+	private static DBLoginSession createLoginSession(Session session, DBUser user) throws DBRollbackException {
+		DBLoginSession login = new DBLoginSession();
+		login.setLastActivity(System.currentTimeMillis());
+		login.setToken(generateLoginToken(session));
+		login.setUser(user);
+		try {
+			session.beginTransaction();
+			session.save(login);
+			session.getTransaction().commit();
+		} catch (Exception e) {
+			session.getTransaction().rollback();
+			throw new DBRollbackException();
+		}
+		return login;
+	}
 
 	/**
 	 * 
@@ -110,7 +215,15 @@ public class DB {
 		return user;
 	}
 		
-	public static void addUser(String emailAddress, String password, String displayName) throws DBCollisionException {
+	/**
+	 * 
+	 * @param emailAddress
+	 * @param password
+	 * @param displayName
+	 * @return newly-created login token
+	 * @throws DBRollbackException when email already exists
+	 */
+	public static String addUser(String emailAddress, String password, String displayName) throws DBRollbackException {
 		Session session = sessionFactory.openSession();
 		DBUser user = new DBUser(); // create DBUser object from scratch
 		
@@ -128,8 +241,12 @@ public class DB {
 		} catch (Exception e) {
 			// ALWAYS put commit() in a try block and call rollback() if anything goes wrong. Hibernate will bitch at you if you a transaction is left open (open = neither committed nor rolled back)
 			session.getTransaction().rollback(); 
-			throw new DBCollisionException();
+			throw new DBRollbackException();
 		}
+		
+		DBLoginSession login = DB.createLoginSession(session, user);
+		
+		return login.getToken();
 		
 		// the user is now saved in the database
 	}
@@ -166,11 +283,11 @@ public class DB {
 	}
 	
 	//add a post with a Title, Body, Message
-	public static FlatPost addPost(String title, String body, String email, String password) throws DBNotFoundException, DBRollbackException {
+	public static FlatPost addPost(Cookie token, String title, String body) throws DBNotFoundException, DBRollbackException {
 		Session session = sessionFactory.openSession();
 		
-		DBUser user = session.createQuery("from DBUser user where user.email='" + email + "'", DBUser.class).uniqueResult();
-		if (user==null) throw new DBNotFoundException();
+		DBUser user = getUserByToken(session, token);
+		if (user == null) throw new DBNotFoundException();
 		
 		DBPost post = new DBPost();
 		post.setAuthor(user);
@@ -190,7 +307,8 @@ public class DB {
 		
 		post.setId(id);
 		
-		FlatPost ret = new FlatPost(post);
+		
+		FlatPost ret = post.flatten();
 		
 		session.close();
 		
@@ -213,20 +331,17 @@ public class DB {
 	 * @param email
 	 * @param password
 	 * @param color
-	 * @return user's ID 
-	 * @throws DBIncorrectPasswordException
+	 * @return FlatUser 
 	 * @throws DBRollbackException
 	 * @throws DBNotFoundException
 	 */
-	public static long setBgColor(String email, String password, int color) throws DBIncorrectPasswordException, DBRollbackException, DBNotFoundException {
+	public static FlatUser setBgColor(Cookie token, int color) throws DBRollbackException, DBNotFoundException {
 		Session session = sessionFactory.openSession();
-		DBUser user = DB.getUserByEmail(session, email);
+		DBUser user = DB.getUserByToken(session, token);
 		
 		if (user == null) throw new DBNotFoundException();
-		
-		if (!user.getPassword().equals(password)) throw new DBIncorrectPasswordException();
-		
-		long userID = user.getId();
+				
+		//long userID = user.getId();
 		
 		user.setBgColor(color);
 		
@@ -241,7 +356,7 @@ public class DB {
 			session.close();
 		}
 		
-		return userID;
+		return user.flatten();
 	}
 	
 	public static  List<FlatComment> getAllComments() {
@@ -281,14 +396,12 @@ public class DB {
 	
 	
 	
-	public static FlatComment addComment(String body, String email, String password, long postID) throws DBNotFoundException, DBRollbackException, DBIncorrectPasswordException{
+	public static FlatComment addComment(Cookie token, String body, long postID) throws DBNotFoundException, DBRollbackException {
 		Session session = sessionFactory.openSession();
 		
-		DBUser user = session.createQuery("from DBUser user where user.email='" + email + "'", DBUser.class).uniqueResult();
+		DBUser user = getUserByToken(session, token);
 		if (user==null) throw new DBNotFoundException();
-		
-		if (!user.getPassword().equals(password)) throw new DBIncorrectPasswordException();
-		
+				
 		DBPost post = session.createQuery("from DBPost post where post.id="+postID, DBPost.class).uniqueResult();
 		
 		DBComment comment = new DBComment();
@@ -340,6 +453,18 @@ public class DB {
 		return list.stream().map(FlatComment::new).collect(Collectors.toList());
 	}
 	
+	private static String generateLoginToken(Session session) {
+		List<Character> list = new ArrayList<>();
+		Random r = new Random();
+		for (char c='a'; c<='z'; ++c) list.add(c);
+		for (char c='A'; c<='Z'; ++c) list.add(c);
+		for (char c='0'; c<='9'; ++c) list.add(c);
+		while (true) {
+			StringBuilder sb = new StringBuilder();
+			for (int i=0; i<200; ++i) sb.append(list.get(r.nextInt(list.size())));
+			if (session.createQuery("from DBLoginSession where token='" + sb.toString() + "'").list().size() == 0) return sb.toString();
+		}
+	}
 	
 	/******************************* Exceptions *******************************/
 	
@@ -351,13 +476,13 @@ public class DB {
 		}
 	}
 	
-	public static class DBCollisionException extends Exception {
+	/*public static class DBCollisionException extends Exception {
 		private static final long serialVersionUID = -3413135035628577683L;
 
 		public DBCollisionException() {
 			super("db collision detected");
 		}
-	}
+	}*/
 	
 	public static class DBRollbackException extends Exception {
 		private static final long serialVersionUID = -3413135035628577683L;

@@ -7,14 +7,18 @@ import java.util.Date;
 import java.util.List;
 import java.util.Scanner;
 
+import javax.ws.rs.CookieParam;
 import javax.ws.rs.FormParam;
 import javax.ws.rs.GET;
 import javax.ws.rs.POST;
 import javax.ws.rs.Path;
 import javax.ws.rs.PathParam;
+import javax.ws.rs.core.Cookie;
+import javax.ws.rs.core.NewCookie;
 import javax.ws.rs.core.Response;
 
-import example.DB.DBCollisionException;
+import org.apache.commons.text.StringEscapeUtils;
+
 import example.DB.DBIncorrectPasswordException;
 import example.DB.DBNotFoundException;
 import example.DB.DBRollbackException;
@@ -27,8 +31,9 @@ public class API {
 	
 	@GET
 	@Path("/")
-	public static Response homepage() {
-		String page = textFileToString("index.html");
+	public static Response homepage(@CookieParam("blogtoken") Cookie token) {
+		FlatUser user = DB.getUserByToken(token);
+		String page = textFileToString("index.html", user);
 		List<FlatPost> posts = DB.getAllBlogPosts();
 		StringBuilder sb = new StringBuilder();
 		for (FlatPost post : posts) {
@@ -36,14 +41,53 @@ public class API {
 			sb.append("<p>Posted by <a href=/getuser/" + post.author.id + ">" + post.author.name + "</a> on "+ new Date(post.date) +"</p>"+System.lineSeparator());
 			sb.append("<br/>" + System.lineSeparator());
 		}
-		return Response.ok(page.replace("$BLOGPOSTS", sb)).build();
+		
+		String createPostButton="<p><a href=/createpost>Create a new blog post</a></p><hr/>\n";
+		if (user == null) createPostButton = "";
+		
+		return Response.ok(page
+				.replace("$CREATEBLOGPOSTBUTTON", createPostButton)
+				.replace("$BLOGPOSTS", sb)).build();
+	}
+	
+	@GET
+	@Path("/login")
+	public static Response loginForm(@CookieParam("blogtoken") Cookie token) {
+		if (DB.getUserByToken(token) != null) return Response.ok("Already logged in").build();
+		
+		return Response.ok(textFileToString("loginpage.html", null)).build();
+	}
+	
+	@POST
+	@Path("/loginpost")
+	public static Response loginPost(@CookieParam("blogtoken") Cookie token, @FormParam("email") String email, @FormParam("password") String password) {
+		if (DB.getUserByToken(token) != null) return Response.ok("Already logged in").build();
+		
+		String newToken;
+		try {
+			newToken = DB.createLoginSession(email, password);
+		} catch (DBIncorrectPasswordException | DBNotFoundException e) {
+			return Response.ok("Incorrect email or password").build();
+		} catch (DBRollbackException e) {
+			return Response.ok("Rollback exception (should never happen)").build();
+		}
+		NewCookie cookie = new NewCookie("blogtoken", newToken);
+		
+		return Response.seeOther(URI.create("/")).cookie(cookie).build(); // redirect to homepage on success
+	}
+	
+	@GET
+	@Path("/logout")
+	public static Response logout(@CookieParam("blogtoken") Cookie token) {
+		DB.deleteLoginSession(token);
+		return Response.seeOther(URI.create("/")).build(); // redirect to homepage either way
 	}
 	
 	@GET
 	@Path("/getpost/{id}")
-	public static Response getPost(@PathParam("id") long id) {
+	public static Response getPost(@CookieParam("blogtoken") Cookie token, @PathParam("id") long id) {
 		FlatPost post;
-		String page = textFileToString("blogpost.html");
+		String page = textFileToString("blogpost.html", DB.getUserByToken(token));
 		try {
 			post = DB.getPostById(id);
 		} catch (DBNotFoundException e) {
@@ -57,7 +101,10 @@ public class API {
 			sb.append("<p>" + com.body + "<br/><br/>\n");
 			sb.append("Posted by " + com.author.name + " on " + new Date(com.date) + "\n");
 		}
-
+		
+		StringBuilder bg = new StringBuilder();
+		bg.append(Integer.toString(post.author.bgColor, 16));
+		while (bg.length() < 6) bg.insert(0, "0");
 		
 		return Response.ok(page
 				.replace("$BLOGPOSTTITLE", post.title)
@@ -66,17 +113,20 @@ public class API {
 				.replace("$BLOGPOSTUSERNAME", post.author.name)
 				.replace("$BLOGCOMMENTS", sb.toString())
 				.replace("$POSTID", Long.toString(id))
+				.replace("$BGCOLOR" , bg.toString())
 				.replace("$BLOGPOSTDATE", new Date(post.date).toString())
 			).build();
 	}
 	
 	@GET
 	@Path("/getuser/{id}")
-	public static Response getUser(@PathParam("id") long id) {
-		String page = textFileToString("userpage.html");
-		FlatUser user;
+	public static Response getUser(@CookieParam("blogtoken") Cookie token, @PathParam("id") long id) {
+		FlatUser viewer = DB.getUserByToken(token);
+		
+		String page = textFileToString("userpage.html", DB.getUserByToken(token));
+		FlatUser pageOwner;
 		try {
-			user = DB.getUserById(id);
+			pageOwner = DB.getUserById(id);
 		} catch (DBNotFoundException e) {
 			return Response.ok("Not found: " + id).build();
 		}
@@ -91,11 +141,19 @@ public class API {
 		}
 		
 		StringBuilder bg = new StringBuilder();
-		bg.append(Integer.toString(user.bgColor, 16));
+		bg.append(Integer.toString(pageOwner.bgColor, 16));
 		while (bg.length() < 6) bg.insert(0, "0");
 		
+		String colorChangeForm = "<form action= \"/changebgcolor\" method=\"post\">\n" + 
+				"	<p>Background Color: <input type= \"text\" name= \"bgcolor\" size=\"100\" maxlength=\"255\" /></p>\n" + 
+				"	<input type= \"submit\" value= \"Submit\"/>\n" + 
+				"</form>";
+		if (viewer == null) colorChangeForm = ""; 
+		else if (viewer.id != pageOwner.id) colorChangeForm = ""; 
+		
 		return Response.ok(page
-				.replace("$BLOGUSERNAME", user.name)
+				.replace("$COLORCHANGEFORM",colorChangeForm)
+				.replace("$BLOGUSERNAME", pageOwner.name)
 				.replace("$BGCOLOR" , bg.toString())
 				.replace("$BLOGPOSTS", sb.toString())
 			).build();
@@ -103,25 +161,32 @@ public class API {
 	
 	@GET
 	@Path("/createaccount")
-	public static Response createAccountGet() {
-		return Response.ok(textFileToString("createaccount.html")).build();
+	public static Response createAccountGet(@CookieParam("blogtoken") Cookie token) {
+		if (DB.getUserByToken(token) != null) return Response.ok("Already logged in").build();
+		
+		return Response.ok(textFileToString("createaccount.html", null)).build();
 	}
 	
 	@POST
 	@Path("/createaccount") 
-	public static Response createAccountPost(@FormParam("email") String email, @FormParam("name") String name, @FormParam("password1") String password1, @FormParam("password2") String password2) {
+	public static Response createAccountPost(@CookieParam("blogtoken") Cookie token, @FormParam("email") String email, @FormParam("name") String name, @FormParam("password1") String password1, @FormParam("password2") String password2) {
+		if (DB.getUserByToken(token) != null) return Response.ok("You are already logged in to an account").build();
 		if (password1.compareTo(password2) != 0) return Response.ok("passwords do not match").build();
+		String newToken;
 		try {
-			DB.addUser(email, password1, name);
-		} catch (DBCollisionException e) {
+			newToken = DB.addUser(email, password1, name);
+		} catch (DBRollbackException e) {
 			return Response.ok("email address already in use").build(); 
 		}
-		return Response.seeOther(URI.create("/")).build(); // redirect to homepage on success
+		
+		NewCookie cookie = new NewCookie("blogtoken", newToken);
+		
+		return Response.seeOther(URI.create("/")).cookie(cookie).build(); // redirect to homepage on success
 	}
 	
 	@POST
 	@Path("/changebgcolor") 
-	public static Response changebgColor(@FormParam("email") String email, @FormParam("password") String password, @FormParam("bgcolor") String bgColor) {
+	public static Response changebgColor(@CookieParam("blogtoken") Cookie token, @FormParam("bgcolor") String bgColor) {
 		int intColor;
 		try {
 			intColor = Integer.parseInt(bgColor, 16);
@@ -129,36 +194,36 @@ public class API {
 			return Response.ok("Not a hex number: " + bgColor).build();
 		}
 		
-		long userID;
+		FlatUser user;
 		
 		try {
-			userID = DB.setBgColor(email, password, intColor);
-		} catch (DBIncorrectPasswordException e) {
-			return Response.ok("Incorrect password").build();
+			user = DB.setBgColor(token, intColor);
 		} catch (DBRollbackException e) {
 			return Response.ok("Rollback exception (should never happen)").build();
 		} catch (DBNotFoundException e) {
-			return Response.ok("Email address not found: " + email).build();
+			return Response.ok("You must be logged in to do that").build();
 		}
 		
-		return Response.seeOther(URI.create("/getuser/" + userID)).build(); // redirect to homepage on success
+		return Response.seeOther(URI.create("/getuser/" + user.id)).build(); // redirect to homepage on success
 	}
 	
 	
 	@GET
 	@Path("/createpost")
-	public static Response createPostGet() {
-		return Response.ok(textFileToString("createpost.html")).build();
+	public static Response createPostGet(@CookieParam("blogtoken") Cookie token) {
+		FlatUser user = DB.getUserByToken(token);
+		if (user == null) return Response.ok("You must be logged in to do that").build();
+		return Response.ok(textFileToString("createpost.html", user)).build();
 	}
 	
 	@POST
 	@Path("/createpost") 
-	public static Response createPostPost(@FormParam("title") String title, @FormParam("body") String body, @FormParam("email") String email, @FormParam("password") String password) {
+	public static Response createPostPost(@CookieParam("blogtoken") Cookie token, @FormParam("title") String title, @FormParam("body") String body) {
 		FlatPost post;
 		try {
-			post = DB.addPost(title, body, email, password);
+			post = DB.addPost(token, title, body);
 		} catch (DBNotFoundException e) {
-			return Response.ok("Incorrect email or password").build();
+			return Response.ok("You must be logged in to do that").build();
 		} catch (DBRollbackException e) {
 			return Response.ok(e.getMessage()).build();
 		}
@@ -168,26 +233,24 @@ public class API {
 	
 	@POST
 	@Path("/addcomment/{id}")
-	public static Response addComment(@PathParam("id") long id, @FormParam("email") String email, @FormParam("password") String password, @FormParam("body") String body) {
+	public static Response addComment(@CookieParam("blogtoken") Cookie token, @PathParam("id") long id, @FormParam("body") String body) {
 		try {
-			DB.addComment(body, email, password, id);
+			DB.addComment(token, body, id);
 		} catch (DBNotFoundException e) {
-			return Response.ok("Email not found").build();
+			return Response.ok("You must be logged in to do that").build();
 		} catch (DBRollbackException e) {
 			return Response.ok("Rollback (should never happen)").build();
-		} catch (DBIncorrectPasswordException e) {
-			return Response.ok("Incorrect password").build();
 		}
 		return Response.seeOther(URI.create("/getpost/"+id)).build();
 	}
 	
-	
 	/**
 	 * Convert a text file in src/main/resources to a String
-	 * @param filename
+	 * @param filename file to retrieve
+	 * @param user FlatUser so the loginbox can be inserted
 	 * @return
 	 */
-	private static String textFileToString(String filename) {
+	private static String textFileToString(String filename, FlatUser user) {
 		StringBuilder sb = new StringBuilder();
 		
 		ClassLoader classLoader = API.class.getClassLoader();
@@ -198,6 +261,22 @@ public class API {
 		} catch (FileNotFoundException e) {
 			throw new RuntimeException("File not found: " + filename); // fail-fast
 		}
-		return sb.toString();
+		
+		StringBuilder loginBox = new StringBuilder();
+		loginBox.append("<div style=\"outline: 1px solid; float: right; text-align: center; margin: 2px; padding: 2px; max-width: 40%;\">\n");
+		loginBox.append("<h2>Blog Project</h2>\n");
+		if (user == null) loginBox.append("<p><a href=/login>Log in</a></p><p><a href=/createaccount>Create account</a></p>");
+		else loginBox.append("<p>Logged in as <a href=/useraccount>" + escape(user.name) + "</a></p><p><a href=/logout>Log out</a></p>\n");
+		loginBox.append("</div>");
+		return sb.toString().replace("$LOGINBOX", loginBox);
+	}
+	
+	/**
+	 * Escape a string so it can be safely inserted into HTML
+	 * @param text text to escape
+	 * @return HTML-escaped text
+	 */
+	private static String escape(String string) {
+		return StringEscapeUtils.escapeHtml4(string);
 	}
 }
