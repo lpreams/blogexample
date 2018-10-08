@@ -34,7 +34,7 @@ public class Main {
 	 * Start the Java web server
 	 */
 	private static void startWebserver() {
-		System.out.println("Starting server");
+		System.out.println("Starting server"); //Alert the user to allow them to know that the code is actually running
 		
 		enableExceptionLogging();
 		

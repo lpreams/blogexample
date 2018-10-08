@@ -1,8 +1,14 @@
 <!DOCTYPE html>
 <html lang="en">
 <head><title>$BLOGUSERNAME</title></head>
-<body>
+<body style="background-color:#$BGCOLOR">
 <h1>$BLOGUSERNAME</h1>
+<form action= "/changebgcolor" method="post">
+	<p>Background Color: <input type= "text" name= "bgcolor" size="100" maxlength="255" /></p>
+	<p>Email: <input type= "text" name= "email" size="100" maxlength="255"/></p>
+	<p>Password: <input type= "password" name= "password" size="100" maxlength="255"/></p>
+	<input type= "submit" value= "Submit"/>
+</form>
 <hr/>
 $BLOGPOSTS
 </body>

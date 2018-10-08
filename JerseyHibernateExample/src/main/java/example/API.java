@@ -90,8 +90,13 @@ public class API {
 			sb.append("<br/>" + System.lineSeparator());
 		}
 		
+		StringBuilder bg = new StringBuilder();
+		bg.append(Integer.toString(user.bgColor, 16));
+		while (bg.length() < 6) bg.insert(0, "0");
+		
 		return Response.ok(page
 				.replace("$BLOGUSERNAME", user.name)
+				.replace("$BGCOLOR" , bg.toString())
 				.replace("$BLOGPOSTS", sb.toString())
 			).build();
 	}
@@ -113,6 +118,32 @@ public class API {
 		}
 		return Response.seeOther(URI.create("/")).build(); // redirect to homepage on success
 	}
+	
+	@POST
+	@Path("/changebgcolor") 
+	public static Response changebgColor(@FormParam("email") String email, @FormParam("password") String password, @FormParam("bgcolor") String bgColor) {
+		int intColor;
+		try {
+			intColor = Integer.parseInt(bgColor, 16);
+		} catch (NumberFormatException e) {
+			return Response.ok("Not a hex number: " + bgColor).build();
+		}
+		
+		long userID;
+		
+		try {
+			userID = DB.setBgColor(email, password, intColor);
+		} catch (DBIncorrectPasswordException e) {
+			return Response.ok("Incorrect password").build();
+		} catch (DBRollbackException e) {
+			return Response.ok("Rollback exception (should never happen)").build();
+		} catch (DBNotFoundException e) {
+			return Response.ok("Email address not found: " + email).build();
+		}
+		
+		return Response.seeOther(URI.create("/getuser/" + userID)).build(); // redirect to homepage on success
+	}
+	
 	
 	@GET
 	@Path("/createpost")
