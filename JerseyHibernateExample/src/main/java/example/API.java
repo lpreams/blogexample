@@ -1,7 +1,5 @@
 package example;
 
-import java.io.File;
-import java.io.FileNotFoundException;
 import java.net.URI;
 import java.util.Date;
 import java.util.List;
@@ -318,15 +316,10 @@ public class API {
 	 */
 	private static String textFileToString(String filename, FlatUser user) {
 		StringBuilder sb = new StringBuilder();
-		
-		ClassLoader classLoader = API.class.getClassLoader();
-		File file = new File(classLoader.getResource(filename).getFile());
 
-		try (Scanner scan = new Scanner(file)) {
+		try (Scanner scan = new Scanner(Thread.currentThread().getContextClassLoader().getResourceAsStream(filename))) {
 			while (scan.hasNextLine()) sb.append(scan.nextLine() + System.lineSeparator());
-		} catch (FileNotFoundException e) {
-			throw new RuntimeException("File not found: " + filename); // fail-fast
-		}
+		} 
 		
 		StringBuilder loginBox = new StringBuilder();
 		loginBox.append("<div style=\"outline: 1px solid; float: right; text-align: center; margin: 2px; padding: 2px; max-width: 40%;\">\n");
