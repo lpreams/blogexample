@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><title> Here is the report page </title></head>
+
+<body>
+<h1 style="color:red"> Give us some feedback </h1>
+			
+<form method="get" action="/report">
+    <p style="color:DodgerBlue">
+		<lable> your phone number (optional)</lable>
+		<input type="text" name="phone" id="phone" placeholder="###-###-####" />
+	</p>
+	
+	<p style="color:MediumSeaGreen">
+		<lable>  name </lable>
+		<input type="text" name="name" id="name1"
+		placeholder="Tom" required="true" />
+		
+	</p>
+	<p style="color:Tomato">
+		<lable>  Email </lable>
+		<input type="text" name="email" 
+		placeholder="you@example.com" required="true" />
+		
+	</p>
+	
+	
+	
+	<p>
+		<div class="form-group">
+		<lable for="comments" style="color:red"> Suggestion </lable> <br />
+		<textarea id="comments" name="comments" rows="12" cols="100"> Please put your suggestion here </textarea>
+		 </div>
+	 </p>
+	
+	 <p>
+		<form action="/action_page.php">
+		<div class="form-group">
+		<lable style="color:slateblue"> Visited Date </lable> <br />
+		<input type="date" name="bday"/>
+		</div>
+	</p>
+	
+	
+	 
+	 <button type="submit" class="btn btn-default" id="submitid" style="color:tomato" >Submit</button>
+	 <div class="form-group">
+	 <input type="reset" value="Clear form" id="resetid"/>
+	 </div>
+	   
+	<script type="text/JavaScript" src="scripts/javaScript.js"> </script>
+</form>
+</body>
+</html>
