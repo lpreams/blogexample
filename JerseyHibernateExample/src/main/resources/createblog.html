@@ -3,12 +3,11 @@
 <head><title>Create new account</title></head>
 <body>
 $LOGINBOX
-<h1>Create new blog post</h1>
-<h2>in <a href=/getblog/$BLOGID>$BLOGTITLE</a></h2>
+<h1>Create a new blog</h1>
 
-<form action= "/createpost/$BLOGID" method="post">
+
+<form action= "/createblog" method="post">
 	<p>Title: <input type= "text" name= "title" size="100" maxlength="255" /></p>
-	<p>Body:<br/><textarea style="width:100%;" name= "body" rows= "20"></textarea></p>
 	<input type= "submit" value= "Submit"/>
 </form>
 </body>

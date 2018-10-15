@@ -1,7 +1,5 @@
 package example;
 
-import java.io.File;
-import java.io.FileNotFoundException;
 import java.net.URI;
 import java.util.Date;
 import java.util.List;
@@ -22,6 +20,7 @@ import org.apache.commons.text.StringEscapeUtils;
 import example.DB.DBIncorrectPasswordException;
 import example.DB.DBNotFoundException;
 import example.DB.DBRollbackException;
+import example.db.DBBlog.FlatBlog;
 import example.db.DBComment.FlatComment;
 import example.db.DBPost.FlatPost;
 import example.db.DBUser.FlatUser;
@@ -38,15 +37,15 @@ public class API {
 		StringBuilder sb = new StringBuilder();
 		for (FlatPost post : posts) {
 			sb.append("<p><h3><a href=/getpost/" + post.id + ">" + post.title + "</a></h3></p>"+System.lineSeparator());
-			sb.append("<p>Posted by <a href=/getuser/" + post.author.id + ">" + post.author.name + "</a> on "+ new Date(post.date) +"</p>"+System.lineSeparator());
+			sb.append("<p>Posted by <a href=/getuser/" + post.blog.author.id + ">" + post.blog.author.name + "</a> on "+ new Date(post.date) +"</p>"+System.lineSeparator());
 			sb.append("<br/>" + System.lineSeparator());
 		}
 		
-		String createPostButton="<p><a href=/createpost>Create a new blog post</a></p><hr/>\n";
-		if (user == null) createPostButton = "";
+		String createBlogButton="<p><a href=/createblog>Create a new blog</a></p><hr/>\n";
+		if (user == null) createBlogButton = "";
 		
 		return Response.ok(page
-				.replace("$CREATEBLOGPOSTBUTTON", createPostButton)
+				.replace("$CREATEBLOGPOSTBUTTON", createBlogButton)
 				.replace("$BLOGPOSTS", sb)).build();
 	}
 	
@@ -84,6 +83,38 @@ public class API {
 	}
 	
 	@GET
+	@Path("/getblog/{id}")
+	public static Response getBlog(@CookieParam("blogtoken") Cookie token, @PathParam("id") long id) {
+		FlatBlog blog;
+		try {
+			blog = DB.getBlogById(id);
+		} catch (DBNotFoundException e) {
+			return Response.ok("Not found: " + id).build();
+		}
+		FlatUser user = DB.getUserByToken(token);
+		String page = textFileToString("blogpage.html", user);
+		StringBuilder sb = new StringBuilder();
+		if (user.id == blog.author.id) {
+			sb.append("<p><a href=/createpost/" + id + ">Create new blog post</a></p><hr/>\n");
+		}
+		for (FlatPost post : blog.posts) {
+			sb.append("<h2><a href=/getpost/" + post.id + ">" + escape(post.title) + "</a></h2>\n");
+			sb.append("<p>Posted on "+new Date(post.date)+"</p>\n");
+			sb.append("<p>" + escape(post.body) + "</p><hr/>\n");
+		}
+		
+		StringBuilder bg = new StringBuilder();
+		bg.append(Integer.toString(blog.author.bgColor, 16));
+		while (bg.length() < 6) bg.insert(0, "0");
+		return Response.ok(page.replace("$BLOGPOSTUSERID", Long.toString(blog.author.id))
+			.replace("$BGCOLOR",bg.toString())
+			.replace("$BLOGPOSTTITLE",escape(blog.title))
+			.replace("$BLOGPOSTUSERNAME",escape(blog.author.name))
+			.replace("$BLOGPOSTDATE", new Date(blog.date).toString())
+			.replace("$BLOGPOSTBODY", sb.toString())).build();
+	}
+	
+	@GET
 	@Path("/getpost/{id}")
 	public static Response getPost(@CookieParam("blogtoken") Cookie token, @PathParam("id") long id) {
 		FlatPost post;
@@ -103,14 +134,14 @@ public class API {
 		}
 		
 		StringBuilder bg = new StringBuilder();
-		bg.append(Integer.toString(post.author.bgColor, 16));
+		bg.append(Integer.toString(post.blog.author.bgColor, 16));
 		while (bg.length() < 6) bg.insert(0, "0");
 		
 		return Response.ok(page
 				.replace("$BLOGPOSTTITLE", post.title)
 				.replace("$BLOGPOSTBODY", post.body)
-				.replace("$BLOGPOSTUSERID", Long.toString(post.author.id))
-				.replace("$BLOGPOSTUSERNAME", post.author.name)
+				.replace("$BLOGPOSTUSERID", Long.toString(post.blog.author.id))
+				.replace("$BLOGPOSTUSERNAME", post.blog.author.name)
 				.replace("$BLOGCOMMENTS", sb.toString())
 				.replace("$POSTID", Long.toString(id))
 				.replace("$BGCOLOR" , bg.toString())
@@ -207,21 +238,54 @@ public class API {
 		return Response.seeOther(URI.create("/getuser/" + user.id)).build(); // redirect to homepage on success
 	}
 	
-	
 	@GET
-	@Path("/createpost")
-	public static Response createPostGet(@CookieParam("blogtoken") Cookie token) {
+	@Path("/createblog")
+	public static Response createBlogGet(@CookieParam("blogtoken") Cookie token) {
 		FlatUser user = DB.getUserByToken(token);
 		if (user == null) return Response.ok("You must be logged in to do that").build();
-		return Response.ok(textFileToString("createpost.html", user)).build();
+		return Response.ok(textFileToString("createblog.html", user)).build();
 	}
 	
 	@POST
-	@Path("/createpost") 
-	public static Response createPostPost(@CookieParam("blogtoken") Cookie token, @FormParam("title") String title, @FormParam("body") String body) {
+	@Path("/createblog") 
+	public static Response createBlogPost(@CookieParam("blogtoken") Cookie token, @FormParam("title") String title) {
+		FlatBlog blog;
+		try {
+			blog = DB.addBlog(token, title);
+		} catch (DBNotFoundException | DBRollbackException e) {
+			return Response.ok("You must be logged in to do that").build();
+		} 
+		
+		return Response.seeOther(URI.create("/getblog/" + blog.id)).build(); // redirect to the new post
+	}
+	
+	
+	@GET
+	@Path("/createpost/{blogid}")
+	public static Response createPostGet(@CookieParam("blogtoken") Cookie token, @PathParam("blogid") long blogid) {
+		FlatUser user = DB.getUserByToken(token);
+		FlatBlog blog;
+		try {
+			blog = DB.getBlogById(blogid);
+		} catch (DBNotFoundException e) {
+			return Response.ok("Not found: " + blogid).build();
+		}
+		
+		
+		
+		if (user == null) return Response.ok("You must be logged in to do that").build();
+		return Response.ok(textFileToString("createpost.html", user)
+				.replace("$BLOGTITLE", escape(blog.title))
+				.replace("$BLOGID", Long.toString(blog.id))
+			).build();
+	}
+	
+	@POST
+	@Path("/createpost/{blogid}") 
+	public static Response createPostPost(@CookieParam("blogtoken") Cookie token, @PathParam("blogid") long blogid, @FormParam("title") String title, @FormParam("body") String body) {
 		FlatPost post;
 		try {
-			post = DB.addPost(token, title, body);
+			post = DB.addPost(token, blogid, title, body);
 		} catch (DBNotFoundException e) {
 			return Response.ok("You must be logged in to do that").build();
 		} catch (DBRollbackException e) {
@@ -252,15 +316,10 @@ public class API {
 	 */
 	private static String textFileToString(String filename, FlatUser user) {
 		StringBuilder sb = new StringBuilder();
-		
-		ClassLoader classLoader = API.class.getClassLoader();
-		File file = new File(classLoader.getResource(filename).getFile());
 
-		try (Scanner scan = new Scanner(file)) {
+		try (Scanner scan = new Scanner(Thread.currentThread().getContextClassLoader().getResourceAsStream(filename))) {
 			while (scan.hasNextLine()) sb.append(scan.nextLine() + System.lineSeparator());
-		} catch (FileNotFoundException e) {
-			throw new RuntimeException("File not found: " + filename); // fail-fast
-		}
+		} 
 		
 		StringBuilder loginBox = new StringBuilder();
 		loginBox.append("<div style=\"outline: 1px solid; float: right; text-align: center; margin: 2px; padding: 2px; max-width: 40%;\">\n");

@@ -1,7 +1,24 @@
 apply plugin: 'java-library'
+apply plugin: 'application'
 
 repositories {
 	jcenter()
+}
+
+mainClassName = 'example.Main'
+sourceCompatibility = 1.8
+targetCompatibility = 1.8
+
+jar {
+        from {
+                (configurations.runtime).collect {
+                        it.isDirectory() ? it : zipTree(it)
+                }
+        }
+        manifest {
+                attributes("Main-Class": mainClassName )
+        }
+        exclude 'META-INF/*.RSA', 'META-INF/*.SF','META-INF/*.DSA'
 }
 
 dependencies {

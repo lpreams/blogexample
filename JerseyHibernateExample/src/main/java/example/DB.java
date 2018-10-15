@@ -15,6 +15,8 @@ import org.hibernate.SessionFactory;
 import org.hibernate.boot.registry.StandardServiceRegistryBuilder;
 import org.hibernate.cfg.Configuration;
 
+import example.db.DBBlog;
+import example.db.DBBlog.FlatBlog;
 import example.db.DBComment;
 import example.db.DBComment.FlatComment;
 import example.db.DBLoginSession;
@@ -56,6 +58,7 @@ public class DB {
 		configuration.addAnnotatedClass(DBPost.class);
 		configuration.addAnnotatedClass(DBComment.class);
 		configuration.addAnnotatedClass(DBLoginSession.class);
+		configuration.addAnnotatedClass(DBBlog.class);
 
 		StandardServiceRegistryBuilder builder = new StandardServiceRegistryBuilder().applySettings(configuration.getProperties()); // apply default settings 
 		return configuration.buildSessionFactory(builder.build()); // build the SessionFactory
@@ -282,15 +285,65 @@ public class DB {
 		return post;
 	}
 	
-	//add a post with a Title, Body, Message
-	public static FlatPost addPost(Cookie token, String title, String body) throws DBNotFoundException, DBRollbackException {
+	public static FlatBlog getBlogById(long id) throws DBNotFoundException {
+		Session session = sessionFactory.openSession();
+		
+		DBBlog result = session.get(DBBlog.class, id);
+		
+		if (result == null) throw new DBNotFoundException();
+		
+		FlatBlog blog = new FlatBlog(result, session);
+		
+		session.close();
+		
+		return blog;
+	}
+	
+	public static FlatBlog addBlog(Cookie token, String title) throws DBNotFoundException, DBRollbackException {
 		Session session = sessionFactory.openSession();
 		
 		DBUser user = getUserByToken(session, token);
 		if (user == null) throw new DBNotFoundException();
 		
+		DBBlog blog = new DBBlog();
+		blog.setAuthor(user);
+		blog.setDate(System.currentTimeMillis());
+		blog.setTitle(title);
+		
+		session.beginTransaction();
+		long id;
+		try {
+			id = (long) session.save(blog);
+			session.getTransaction().commit();
+		} catch (Exception e) {
+			session.getTransaction().rollback();
+			throw new DBRollbackException();
+		}
+		
+		blog.setId(id);
+		
+		
+		FlatBlog ret = blog.flatten();
+		
+		session.close();
+		
+		return ret;
+	}
+	
+	//add a post with a Title, Body, Message
+	public static FlatPost addPost(Cookie token, long blogid, String title, String body) throws DBNotFoundException, DBRollbackException {
+		Session session = sessionFactory.openSession();
+		
+		DBUser user = getUserByToken(session, token);
+		if (user == null) throw new DBNotFoundException();
+		
+		DBBlog blog = session.get(DBBlog.class, blogid);
+		if (blog == null) throw new DBNotFoundException();
+		
+		if (blog.getAuthor().getId() != user.getId()) throw new DBNotFoundException();
+		
 		DBPost post = new DBPost();
-		post.setAuthor(user);
+		post.setBlog(blog);
 		post.setBody(body);
 		post.setDate(System.currentTimeMillis());
 		post.setTitle(title);
@@ -319,7 +372,7 @@ public class DB {
 	public static List<FlatPost> getPostsByUserId(long id) {
 		Session session = sessionFactory.openSession();
 		
-		List<DBPost> result = session.createQuery("from DBPost post where post.author.id="+id, DBPost.class).list(); // this is HQL, Hibernate Query Language. It's like SQL but simpler, specific to Hibernate, and works with any Hibernate-supported database
+		List<DBPost> result = session.createQuery("from DBPost post where post.blog.author.id="+id, DBPost.class).list(); // this is HQL, Hibernate Query Language. It's like SQL but simpler, specific to Hibernate, and works with any Hibernate-supported database
 		
 		List<FlatPost> list = result.stream().map(post->post.flatten()).collect(Collectors.toList());
 		session.close(); 
