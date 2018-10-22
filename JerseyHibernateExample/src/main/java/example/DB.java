@@ -379,6 +379,16 @@ public class DB {
 		return list;
 	}
 	
+	public static List<FlatBlog> getBlogsByUserId(long id) {
+		Session session = sessionFactory.openSession();
+		
+		List<DBBlog> result = session.createQuery("from DBBlog blog where blog.author.id="+id, DBBlog.class).list(); // this is HQL, Hibernate Query Language. It's like SQL but simpler, specific to Hibernate, and works with any Hibernate-supported database
+		
+		List<FlatBlog> list = result.stream().map(post->post.flatten()).collect(Collectors.toList());
+		session.close(); 
+		return list;
+	}
+	
 	/**
 	 * 
 	 * @param email
@@ -482,7 +492,19 @@ public class DB {
 		return ret;
 	}
 	
-	
+	public static List<FlatPost> searchPosts(String search) {
+		Session session = sessionFactory.openSession();
+		
+		search = "%" + search.toLowerCase().replace("\\s+", "%") + "%";
+		
+		String hql = "from DBPost post where lower(post.body) like :search OR lower(post.title) like :search";
+		List<FlatPost> list = session.createQuery(hql, DBPost.class).setParameter("search", search).stream()
+				.map(post->post.flatten()).collect(Collectors.toList());
+				
+		session.close();
+		
+		return list;
+	}
 	
 	
 	public static List<FlatComment> getCommentsByUserId(long id) {

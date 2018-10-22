@@ -11,6 +11,7 @@ import javax.ws.rs.GET;
 import javax.ws.rs.POST;
 import javax.ws.rs.Path;
 import javax.ws.rs.PathParam;
+import javax.ws.rs.QueryParam;
 import javax.ws.rs.core.Cookie;
 import javax.ws.rs.core.NewCookie;
 import javax.ws.rs.core.Response;
@@ -162,9 +163,19 @@ public class API {
 			return Response.ok("Not found: " + id).build();
 		}
 		
+		List<FlatBlog> blogs = DB.getBlogsByUserId(id);
 		List<FlatPost> posts = DB.getPostsByUserId(id);
 		
 		StringBuilder sb = new StringBuilder();
+		sb.append("<h2>Blogs</h2>\n");
+		for (FlatBlog blog : blogs) {
+			sb.append("<p><h3><a href=/getblog/" + blog.id + ">" + blog.title + "</a></h3>"+System.lineSeparator());
+			sb.append("<br />Created on "+ new Date(blog.date) +"</p>"+System.lineSeparator());
+		}
+		
+		
+		
+		sb.append("<hr/><h2>Posts</h2>\n");
 		for (FlatPost post : posts) {
 			sb.append("<p><h3><a href=/getpost/" + post.id + ">" + post.title + "</a></h3></p>"+System.lineSeparator());
 			sb.append("<p>Posted on "+ new Date(post.date) +"</p>"+System.lineSeparator());
@@ -176,7 +187,7 @@ public class API {
 		while (bg.length() < 6) bg.insert(0, "0");
 		
 		String colorChangeForm = "<form action= \"/changebgcolor\" method=\"post\">\n" + 
-				"	<p>Background Color: <input type= \"text\" name= \"bgcolor\" size=\"100\" maxlength=\"255\" /></p>\n" + 
+				"	<p>Background Color: <input type=\"color\" name=\"bgcolor\" value=\"#FFFFFF\" /> <!--<input type= \"text\" name= \"bgcolor\" size=\"100\" maxlength=\"255\" />--></p>\n" + 
 				"	<input type= \"submit\" value= \"Submit\"/>\n" + 
 				"</form>";
 		if (viewer == null) colorChangeForm = ""; 
@@ -218,6 +229,7 @@ public class API {
 	@POST
 	@Path("/changebgcolor") 
 	public static Response changebgColor(@CookieParam("blogtoken") Cookie token, @FormParam("bgcolor") String bgColor) {
+		if (bgColor.startsWith("#")) bgColor = bgColor.substring(1, bgColor.length());
 		int intColor;
 		try {
 			intColor = Integer.parseInt(bgColor, 16);
@@ -228,6 +240,7 @@ public class API {
 		FlatUser user;
 		
 		try {
+			
 			user = DB.setBgColor(token, intColor);
 		} catch (DBRollbackException e) {
 			return Response.ok("Rollback exception (should never happen)").build();
@@ -306,6 +319,24 @@ public class API {
 			return Response.ok("Rollback (should never happen)").build();
 		}
 		return Response.seeOther(URI.create("/getpost/"+id)).build();
+	}
+	
+	@GET
+	@Path("/search")
+	public static Response search(@CookieParam("blogtoken") Cookie token, @QueryParam("q") String query) {
+		FlatUser user = DB.getUserByToken(token);
+		if (query==null || query.length() == 0) return Response.ok(textFileToString("search.html", user).replace("$SEARCHRESULTS", "")).build();
+		
+		List<FlatPost> result = DB.searchPosts(query);
+		StringBuilder sb = new StringBuilder();
+		
+		for (FlatPost post : result) {
+			sb.append("<p><h3><a href=/getpost/" + post.id + ">" + post.title + "</a></h3></p>"+System.lineSeparator());
+			sb.append("<p>Posted on "+ new Date(post.date) +"</p>"+System.lineSeparator());
+			sb.append("<br/>" + System.lineSeparator());
+		}
+		
+		return Response.ok(textFileToString("search.html", user).replace("$SEARCHRESULTS", sb.toString())).build();
 	}
 	
 	/**
