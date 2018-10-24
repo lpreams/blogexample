@@ -20,6 +20,7 @@ import org.apache.commons.text.StringEscapeUtils;
 
 import example.DB.DBIncorrectPasswordException;
 import example.DB.DBNotFoundException;
+import example.DB.DBPasswordMismatchException;
 import example.DB.DBRollbackException;
 import example.db.DBBlog.FlatBlog;
 import example.db.DBComment.FlatComment;
@@ -55,7 +56,7 @@ public class API {
 	public static Response loginForm(@CookieParam("blogtoken") Cookie token) {
 		if (DB.getUserByToken(token) != null) return Response.ok("Already logged in").build();
 		
-		return Response.ok(textFileToString("loginpage.html", null)).build();
+		return Response.ok(textFileToString("loginpage.html", null).replace("$MESSAGE", "")).build();
 	}
 	
 	@POST
@@ -67,7 +68,7 @@ public class API {
 		try {
 			newToken = DB.createLoginSession(email, password);
 		} catch (DBIncorrectPasswordException | DBNotFoundException e) {
-			return Response.ok("Incorrect email or password").build();
+			return Response.ok(textFileToString("loginpage.html", null).replace("$MESSAGE","Incorrect email or password")).build();
 		} catch (DBRollbackException e) {
 			return Response.ok("Rollback exception (should never happen)").build();
 		}
@@ -337,6 +338,35 @@ public class API {
 		}
 		
 		return Response.ok(textFileToString("search.html", user).replace("$SEARCHRESULTS", sb.toString())).build();
+	}
+	
+	@GET
+	@Path("/useraccount")
+	public static Response useraccountform(@CookieParam("blogtoken") Cookie token) {
+		FlatUser user = DB.getUserByToken(token);
+		if (user==null) return Response.ok("You must be logged in to do that").build();
+		
+		return Response.ok(API.textFileToString("useraccountform.html", user).replace("$MESSAGE", "")).build();
+	}
+	
+	@POST
+	@Path("/changepassword")
+	public static Response changepassword(@CookieParam("blogtoken") Cookie token, @FormParam("password") String password, @FormParam("password1") String password1, @FormParam("password2") String password2) {
+		//FlatUser user = DB.getUserByToken(token);
+		//if (user==null) return Response.ok("You must be logged in to do that").build();
+		
+		try {
+			FlatUser user = DB.changeUserPassword(token, password, password1, password2);
+			return Response.ok(API.textFileToString("useraccountform.html", user).replace("$MESSAGE", "Password successfully updated!")).build();
+		} catch (DBNotFoundException e) {
+			return Response.ok("You must be logged in to do that").build();
+		} catch (DBIncorrectPasswordException e) {
+			return Response.ok(API.textFileToString("useraccountform.html", e.user).replace("$MESSAGE", "Incorrect current password, password NOT changed.")).build();
+		} catch (DBPasswordMismatchException e) {
+			return Response.ok(API.textFileToString("useraccountform.html", e.user).replace("$MESSAGE", "Passwords did not match, password NOT changed")).build();
+		} catch (DBRollbackException e) {
+			return Response.ok("Rollback exception (should never happen)").build();
+		}
 	}
 	
 	/**
