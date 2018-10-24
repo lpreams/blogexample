@@ -58,6 +58,10 @@ public class API {
 		return Response.ok(textFileToString("loginpage.html", null)).build();
 	}
 	
+
+	
+	
+	
 	@POST
 	@Path("/loginpost")
 	public static Response loginPost(@CookieParam("blogtoken") Cookie token, @FormParam("email") String email, @FormParam("password") String password) {
@@ -337,6 +341,30 @@ public class API {
 		}
 		
 		return Response.ok(textFileToString("search.html", user).replace("$SEARCHRESULTS", sb.toString())).build();
+	}
+	
+	@GET
+	@Path("/report")
+	public static Response reportform(@CookieParam("blogtoken") Cookie token) {
+		FlatUser user = DB.getUserByToken(token);
+		if (user == null) return Response.ok("You must be logged in to do that").build();
+		
+		return Response.ok(textFileToString("report.html", user).replace("$MESSAGE","")).build();
+	}
+	
+	@POST
+	@Path("/report")
+	public static Response submitreport(@CookieParam("blogtoken") Cookie token, @FormParam("phone") String phone, @FormParam("comments") String suggestion) {
+		
+		try {
+			FlatUser user = DB.submitReport(token, suggestion);
+			return Response.ok(textFileToString("report.html", user).replace("$MESSAGE","Report submitted successfully")).build();
+		} catch (DBNotFoundException e) {
+			return Response.ok("You must be logged in to do that").build();
+		} catch (DBRollbackException e) {
+			return Response.ok("Rollback exception (should never happen)").build();
+		}
+		
 	}
 	
 	/**

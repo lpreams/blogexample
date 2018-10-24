@@ -25,7 +25,6 @@ public class DBReport {
 		@ManyToOne // one blog can own many comments
 					// (in the database this means that the user's id will be stored in a column called author_id, but Hibernate will automatically convert that into a full DBUser object for us)
 		private DBUser author; // user who wrote this post
-		private String phone;
 		private String suggestion; // suggestion body
 		private long date; // when you post the comment
 		
@@ -34,13 +33,11 @@ public class DBReport {
 		
 		public static class FlatReport {
 			public final long id;
-			public final String phone;
 			public final String suggestion;
 			public final long date;
 			public final FlatUser author;
 			public FlatReport(DBReport user) {
 				this.id = user.id;
-				this.phone = user.phone;
 				this.suggestion = user.suggestion;
 				this.date = user.date;
 				this.author = new FlatUser(user.getAuthor());
@@ -61,14 +58,6 @@ public class DBReport {
 
 		public void setId(long id) {
 			this.id = id;
-		}
-		
-		public String getPhone() {
-			return phone;
-		}
-
-		public void setPhone(String phone) {
-			this.phone = phone;
 		}
 		
 		public DBUser getAuthor() {

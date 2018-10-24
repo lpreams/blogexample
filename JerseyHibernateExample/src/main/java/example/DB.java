@@ -22,6 +22,7 @@ import example.db.DBComment.FlatComment;
 import example.db.DBLoginSession;
 import example.db.DBPost;
 import example.db.DBPost.FlatPost;
+import example.db.DBReport;
 import example.db.DBUser;
 import example.db.DBUser.FlatUser;
 
@@ -59,6 +60,7 @@ public class DB {
 		configuration.addAnnotatedClass(DBComment.class);
 		configuration.addAnnotatedClass(DBLoginSession.class);
 		configuration.addAnnotatedClass(DBBlog.class);
+		configuration.addAnnotatedClass(DBReport.class);
 
 		StandardServiceRegistryBuilder builder = new StandardServiceRegistryBuilder().applySettings(configuration.getProperties()); // apply default settings 
 		return configuration.buildSessionFactory(builder.build()); // build the SessionFactory
@@ -515,6 +517,43 @@ public class DB {
 		List<FlatComment> list = result.stream().map(comment->comment.flatten()).collect(Collectors.toList());
 		session.close(); 
 		return list;
+	}
+	
+	
+	/**
+	 * Submit a user report
+	 * @param token
+	 * @param phone
+	 * @param suggestion
+	 * @throws DBNotFoundException if user not found
+	 * @throws DBRollbackException should not happen
+	 */
+	public static FlatUser submitReport(Cookie token, String suggestion) throws DBNotFoundException, DBRollbackException {
+		Session session = sessionFactory.openSession();
+		
+		DBUser user = DB.getUserByToken(session, token);
+		if (user == null) throw new DB.DBNotFoundException();
+		
+		DBReport report = new DBReport();
+		report.setAuthor(user);
+		report.setBody(suggestion);
+		report.setDate(System.currentTimeMillis());
+		
+		try {
+			session.beginTransaction();
+			session.save(report);
+			session.getTransaction().commit();
+		} catch (Exception e) {
+			session.getTransaction().rollback();
+			//System.err.println(e);
+			e.printStackTrace();
+			throw new DB.DBRollbackException();
+		}
+		FlatUser result = user.flatten();
+		
+		session.close();
+		
+		return result;
 	}
 	
 	/**
