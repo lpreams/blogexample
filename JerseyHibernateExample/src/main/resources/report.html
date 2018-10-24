@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><title> Here is the report page </title></head>
+
+<body>
+$LOGINBOX
+<h1 style="color:red"> Give us some feedback </h1>
+<p>$MESSAGE</p>
+<form method="post" action="/report">
+    <!--<p style="color:DodgerBlue">
+		<lable> your phone number (optional)</lable>
+		<input type="text" name="phone" id="phone" placeholder="###-###-####" />
+	</p>-->
+	
+	
+	<p>
+		<div class="form-group">
+		<lable for="comments" style="color:red"> Suggestion </lable> <br />
+		<textarea id="comments" name="comments" rows="12" cols="100"> Please put your suggestion here </textarea>
+		 </div>
+	 </p>
+	
+	 <p>
+	<!--<div class="form-group">
+		<lable style="color:slateblue"> Visited Date </lable> <br />
+		<input type="date" name="bday"/>
+		</div>
+	</p>-->
+	
+	
+	 
+	 <button type="submit" class="btn btn-default" id="submitid" style="color:tomato" >Submit</button>
+	 <div class="form-group">
+	 <input type="reset" value="Clear form" id="resetid"/>
+	 </div>
+	   
+</form>
+</body>
+</html>
