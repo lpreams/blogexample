@@ -567,6 +567,43 @@ public class DB {
 		return list.stream().map(FlatComment::new).collect(Collectors.toList());
 	}
 	
+	/**
+	 * (attempt to) change a user's password
+	 * @param token 
+	 * @param password current password, to be checked
+	 * @param password1 new password
+	 * @param password2 confirmation of new password
+	 * @return FlatUser 
+	 * @throws DBNotFoundException if token does not connect to a user
+	 * @throws DBIncorrectPasswordException if password does not match the one in the database
+	 * @throws DBPasswordMismatchException if password1 != password2
+	 * @throws DBRollbackException rollback 
+	 */
+	public static FlatUser changeUserPassword(Cookie token, String password, String password1, String password2) throws DBNotFoundException, DBIncorrectPasswordException, DBPasswordMismatchException, DBRollbackException {
+		Session session = sessionFactory.openSession();
+		DBUser user = DB.getUserByToken(session, token);
+		if (user == null) throw new DBNotFoundException();
+		
+		if (!password.equals(user.getPassword())) throw new DBIncorrectPasswordException(user.flatten());
+		if (!password1.equals(password2)) throw new DBPasswordMismatchException(user.flatten());
+		
+		session.beginTransaction();
+		try {
+			user.setPassword(password1);
+			session.merge(user);
+			session.getTransaction().commit();
+		} catch (Exception e) {
+			session.getTransaction().rollback();
+			throw new DBRollbackException();
+		}
+		
+		FlatUser fuser = user.flatten();
+		session.close(); 
+		return fuser;
+	}
+	
+	
+	
 	private static String generateLoginToken(Session session) {
 		List<Character> list = new ArrayList<>();
 		Random r = new Random();
@@ -590,13 +627,15 @@ public class DB {
 		}
 	}
 	
-	/*public static class DBCollisionException extends Exception {
+	public static class DBPasswordMismatchException extends Exception {
 		private static final long serialVersionUID = -3413135035628577683L;
+		public final FlatUser user;
 
-		public DBCollisionException() {
-			super("db collision detected");
+		public DBPasswordMismatchException(FlatUser user) {
+			super("password mismatch");
+			this.user = user;
 		}
-	}*/
+	}
 	
 	public static class DBRollbackException extends Exception {
 		private static final long serialVersionUID = -3413135035628577683L;
@@ -608,9 +647,15 @@ public class DB {
 	
 	public static class DBIncorrectPasswordException extends Exception {
 		private static final long serialVersionUID = -3413135035628577683L;
-
+		public final FlatUser user;
 		public DBIncorrectPasswordException() {
 			super("password incorrect, no changes made");
+			user = null;
+		}
+		
+		public DBIncorrectPasswordException(FlatUser user) {
+			super("password incorrect, no changes made");
+			this.user = user;
 		}
 	}
 }
