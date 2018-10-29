@@ -366,6 +366,8 @@ public class API {
 			return Response.ok("Rollback exception (should never happen)").build();
 		}
 	}
+  
+  @GET
 	@Path("/useraccount")
 	public static Response useraccountform(@CookieParam("blogtoken") Cookie token) {
 		FlatUser user = DB.getUserByToken(token);

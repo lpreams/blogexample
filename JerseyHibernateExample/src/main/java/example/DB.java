@@ -1,10 +1,18 @@
 package example;
 
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
+import java.util.Properties;
 import java.util.Random;
 import java.util.stream.Collectors;
 
+import javax.mail.Authenticator;
+import javax.mail.Message;
+import javax.mail.PasswordAuthentication;
+import javax.mail.Transport;
+import javax.mail.internet.InternetAddress;
+import javax.mail.internet.MimeMessage;
 import javax.persistence.criteria.CriteriaBuilder;
 import javax.persistence.criteria.CriteriaQuery;
 import javax.persistence.criteria.Root;
@@ -23,6 +31,7 @@ import example.db.DBLoginSession;
 import example.db.DBPost;
 import example.db.DBPost.FlatPost;
 import example.db.DBReport;
+import example.db.DBSiteSetting;
 import example.db.DBUser;
 import example.db.DBUser.FlatUser;
 
@@ -61,6 +70,7 @@ public class DB {
 		configuration.addAnnotatedClass(DBLoginSession.class);
 		configuration.addAnnotatedClass(DBBlog.class);
 		configuration.addAnnotatedClass(DBReport.class);
+		configuration.addAnnotatedClass(DBSiteSetting.class);
 
 		StandardServiceRegistryBuilder builder = new StandardServiceRegistryBuilder().applySettings(configuration.getProperties()); // apply default settings 
 		return configuration.buildSessionFactory(builder.build()); // build the SessionFactory
@@ -602,7 +612,90 @@ public class DB {
 		return fuser;
 	}
 	
+	public static void main(String[] args) {
+		DB.startDatabaseConnection();
+		Session session = DB.sessionFactory.openSession();
+		boolean sent = DB.sendEmail("lpreams@gmail.com", "Blog Project Test", "This is a test of our project's ability to send email", session);
+		session.close();
+		
+		if (sent) System.out.println("Sent successfully");
+		else System.out.println("Failed to send");
+		
+		System.exit(0);
+	}
 	
+    /**
+     * Send an email
+     * @param toAddress
+     * @param subject
+     * @param body
+     * @return whether it sent successfully or not
+     */
+	public static boolean sendEmail(String toAddress, String subject, String body, Session session) {
+		String email = session.get(DBSiteSetting.class, "SMTP_EMAIL").getValue();
+		String password = session.get(DBSiteSetting.class, "SMTP_PASSWORD").getValue();
+		String server = session.get(DBSiteSetting.class, "SMTP_SERVER").getValue();
+		
+		if (email==null || password == null || server == null) return false;
+		
+		Properties props = new Properties();
+		props.put("mail.smtp.host", server);
+		props.put("mail.smtp.port", "587");
+		props.put("mail.smtp.auth", "true");
+		props.put("mail.smtp.starttls.enable", "true");
+		Authenticator auth = new Authenticator() {
+			protected PasswordAuthentication getPasswordAuthentication() {
+				return new PasswordAuthentication(email, password);
+			}
+		};
+		try {
+			MimeMessage msg = new MimeMessage(javax.mail.Session.getInstance(props, auth));
+			msg.addHeader("Content-type", "text/HTML; charset=UTF-8");
+			msg.addHeader("format", "flowed");
+			msg.addHeader("Content-Transfer-Encoding", "8bit");
+			msg.setFrom(new InternetAddress(email, "Blog Project"));
+			msg.setReplyTo(InternetAddress.parse(email, false));
+			msg.setSubject(subject, "UTF-8");
+			msg.setText(body, "UTF-8", "html");
+			msg.setSentDate(new Date());
+			msg.setRecipients(Message.RecipientType.TO, InternetAddress.parse(toAddress, false));
+			Transport.send(msg);
+		} catch (Exception e) {
+			return false;
+		}
+		return true;
+	}
+	
+	/*private static void emailSetup() {
+		DB.startDatabaseConnection();
+		Session session = DB.sessionFactory.openSession();
+		
+		DBSiteSetting email = new DBSiteSetting();
+		email.setKey("SMTP_EMAIL");
+		email.setValue("your.email.address@example.com");
+		
+		DBSiteSetting password = new DBSiteSetting();
+		password.setKey("SMTP_PASSWORD");
+		password.setValue("ThIsIsYoUrEmAiLpAsSwOrD");
+		
+		DBSiteSetting server = new DBSiteSetting();
+		server.setKey("SMTP_SERVER");
+		server.setValue("smtp.example.com");
+		
+		try {
+			session.beginTransaction();
+			session.save(email);
+			session.save(password);
+			session.save(server);
+			session.getTransaction().commit();
+		} catch (Exception e) {
+			session.getTransaction().rollback();
+			System.err.println("Failed to set email settings");
+		}
+		
+		session.close();
+		System.exit(0);
+	}*/
 	
 	private static String generateLoginToken(Session session) {
 		List<Character> list = new ArrayList<>();
