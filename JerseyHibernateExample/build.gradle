@@ -41,5 +41,8 @@ dependencies {
 	
 	// HTML escaper
 	compile group: 'org.apache.commons', name: 'commons-text', version: '1.4'
+
+	// Sending email
+	compile group: 'com.sun.mail', name: 'javax.mail', version: '1.6.1'
 }
 

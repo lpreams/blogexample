@@ -365,6 +365,7 @@ public class API {
 		} catch (DBRollbackException e) {
 			return Response.ok("Rollback exception (should never happen)").build();
 		}
+	}
 		
 	@Path("/useraccount")
 	public static Response useraccountform(@CookieParam("blogtoken") Cookie token) {
