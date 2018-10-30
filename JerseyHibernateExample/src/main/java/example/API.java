@@ -18,10 +18,12 @@ import javax.ws.rs.core.Response;
 
 import org.apache.commons.text.StringEscapeUtils;
 
+import example.DB.BlogPostWithComments;
 import example.DB.DBIncorrectPasswordException;
 import example.DB.DBNotFoundException;
 import example.DB.DBPasswordMismatchException;
 import example.DB.DBRollbackException;
+import example.DB.UserProfileResult;
 import example.db.DBBlog.FlatBlog;
 import example.db.DBComment.FlatComment;
 import example.db.DBPost.FlatPost;
@@ -58,10 +60,6 @@ public class API {
 		
 		return Response.ok(textFileToString("loginpage.html", null).replace("$MESSAGE", "")).build();
 	}
-	
-
-	
-	
 	
 	@POST
 	@Path("/loginpost")
@@ -123,35 +121,33 @@ public class API {
 	@GET
 	@Path("/getpost/{id}")
 	public static Response getPost(@CookieParam("blogtoken") Cookie token, @PathParam("id") long id) {
-		FlatPost post;
+		BlogPostWithComments result;
 		String page = textFileToString("blogpost.html", DB.getUserByToken(token));
 		try {
-			post = DB.getPostById(id);
+			result = DB.getPostById(id);
 		} catch (DBNotFoundException e) {
 			return Response.ok("Not found: " + id).build();
 		}
 		
-		StringBuilder sb = new StringBuilder();
-		List<FlatComment> list = DB.getCommentsOnPost(id);
-		
-		for (FlatComment com : list) {
+		StringBuilder sb = new StringBuilder();		
+		for (FlatComment com : result.comments) {
 			sb.append("<p>" + com.body + "<br/><br/>\n");
 			sb.append("Posted by " + com.author.name + " on " + new Date(com.date) + "\n");
 		}
 		
 		StringBuilder bg = new StringBuilder();
-		bg.append(Integer.toString(post.blog.author.bgColor, 16));
+		bg.append(Integer.toString(result.post.blog.author.bgColor, 16));
 		while (bg.length() < 6) bg.insert(0, "0");
 		
 		return Response.ok(page
-				.replace("$BLOGPOSTTITLE", post.title)
-				.replace("$BLOGPOSTBODY", post.body)
-				.replace("$BLOGPOSTUSERID", Long.toString(post.blog.author.id))
-				.replace("$BLOGPOSTUSERNAME", post.blog.author.name)
+				.replace("$BLOGPOSTTITLE", result.post.title)
+				.replace("$BLOGPOSTBODY", result.post.body)
+				.replace("$BLOGPOSTUSERID", Long.toString(result.post.blog.author.id))
+				.replace("$BLOGPOSTUSERNAME", result.post.blog.author.name)
 				.replace("$BLOGCOMMENTS", sb.toString())
 				.replace("$POSTID", Long.toString(id))
 				.replace("$BGCOLOR" , bg.toString())
-				.replace("$BLOGPOSTDATE", new Date(post.date).toString())
+				.replace("$BLOGPOSTDATE", new Date(result.post.date).toString())
 			).build();
 	}
 	
@@ -161,34 +157,29 @@ public class API {
 		FlatUser viewer = DB.getUserByToken(token);
 		
 		String page = textFileToString("userpage.html", DB.getUserByToken(token));
-		FlatUser pageOwner;
+		UserProfileResult result;
 		try {
-			pageOwner = DB.getUserById(id);
+			result = DB.getUserProfile(id);
 		} catch (DBNotFoundException e) {
 			return Response.ok("Not found: " + id).build();
 		}
 		
-		List<FlatBlog> blogs = DB.getBlogsByUserId(id);
-		List<FlatPost> posts = DB.getPostsByUserId(id);
-		
 		StringBuilder sb = new StringBuilder();
 		sb.append("<h2>Blogs</h2>\n");
-		for (FlatBlog blog : blogs) {
+		for (FlatBlog blog : result.blogs) {
 			sb.append("<p><h3><a href=/getblog/" + blog.id + ">" + blog.title + "</a></h3>"+System.lineSeparator());
 			sb.append("<br />Created on "+ new Date(blog.date) +"</p>"+System.lineSeparator());
 		}
 		
-		
-		
 		sb.append("<hr/><h2>Posts</h2>\n");
-		for (FlatPost post : posts) {
+		for (FlatPost post : result.posts) {
 			sb.append("<p><h3><a href=/getpost/" + post.id + ">" + post.title + "</a></h3></p>"+System.lineSeparator());
 			sb.append("<p>Posted on "+ new Date(post.date) +"</p>"+System.lineSeparator());
 			sb.append("<br/>" + System.lineSeparator());
 		}
 		
 		StringBuilder bg = new StringBuilder();
-		bg.append(Integer.toString(pageOwner.bgColor, 16));
+		bg.append(Integer.toString(result.user.bgColor, 16));
 		while (bg.length() < 6) bg.insert(0, "0");
 		
 		String colorChangeForm = "<form action= \"/changebgcolor\" method=\"post\">\n" + 
@@ -196,11 +187,11 @@ public class API {
 				"	<input type= \"submit\" value= \"Submit\"/>\n" + 
 				"</form>";
 		if (viewer == null) colorChangeForm = ""; 
-		else if (viewer.id != pageOwner.id) colorChangeForm = ""; 
+		else if (viewer.id != result.user.id) colorChangeForm = ""; 
 		
 		return Response.ok(page
 				.replace("$COLORCHANGEFORM",colorChangeForm)
-				.replace("$BLOGUSERNAME", pageOwner.name)
+				.replace("$BLOGUSERNAME", result.user.name)
 				.replace("$BGCOLOR" , bg.toString())
 				.replace("$BLOGPOSTS", sb.toString())
 			).build();
@@ -366,8 +357,8 @@ public class API {
 			return Response.ok("Rollback exception (should never happen)").build();
 		}
 	}
-  
-  @GET
+	
+	@GET
 	@Path("/useraccount")
 	public static Response useraccountform(@CookieParam("blogtoken") Cookie token) {
 		FlatUser user = DB.getUserByToken(token);
@@ -379,9 +370,6 @@ public class API {
 	@POST
 	@Path("/changepassword")
 	public static Response changepassword(@CookieParam("blogtoken") Cookie token, @FormParam("password") String password, @FormParam("password1") String password1, @FormParam("password2") String password2) {
-		//FlatUser user = DB.getUserByToken(token);
-		//if (user==null) return Response.ok("You must be logged in to do that").build();
-		
 		try {
 			FlatUser user = DB.changeUserPassword(token, password, password1, password2);
 			return Response.ok(API.textFileToString("useraccountform.html", user).replace("$MESSAGE", "Password successfully updated!")).build();
