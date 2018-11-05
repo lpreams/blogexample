@@ -44,5 +44,8 @@ dependencies {
 
 	// Sending email
 	compile group: 'com.sun.mail', name: 'javax.mail', version: '1.6.1'
+	
+	// Password hashing
+	compile group: 'org.springframework.security', name: 'spring-security-crypto', version: '5.0.7.RELEASE'
 }
 

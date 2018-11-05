@@ -28,7 +28,7 @@ public class DBUser {
 	
 	private long timestamp; // date account created
 	
-	private String password; // user's password (irl this should be salted and hashed, but for simplicity we'll just store plaintext passwords for now
+	private String hashedPassword;
 	
 	private int bgColor; // User's preference of background color
 	
@@ -40,14 +40,12 @@ public class DBUser {
 		public final String email;
 		public final String name;
 		public final long timestamp;
-		public final String password;
 		public final int bgColor;
 		public FlatUser(DBUser user) {
 			this.id = user.id;
 			this.email = user.email;
 			this.name = user.name;
 			this.timestamp = user.timestamp;
-			this.password = user.password;
 			this.bgColor = user.bgColor;
 		}
 	}
@@ -92,15 +90,15 @@ public class DBUser {
 	public void setTimestamp(long timestamp) {
 		this.timestamp = timestamp;
 	}
-
-	public String getPassword() {
-		return password;
-	}
-
-	public void setPassword(String password) {
-		this.password = password;
-	}
 	
+	public String getHashedPassword() {
+		return hashedPassword;
+	}
+
+	public void setHashedPassword(String hashedPassword) {
+		this.hashedPassword = hashedPassword;
+	}
+
 	public int getBgColor() {
 		return bgColor;
 	}

@@ -22,6 +22,7 @@ import org.hibernate.Session;
 import org.hibernate.SessionFactory;
 import org.hibernate.boot.registry.StandardServiceRegistryBuilder;
 import org.hibernate.cfg.Configuration;
+import org.springframework.security.crypto.bcrypt.BCrypt;
 
 import example.db.DBBlog;
 import example.db.DBBlog.FlatBlog;
@@ -52,8 +53,7 @@ public class DB {
 	 */
 	private static SessionFactory newSessionFactory() {
 		Configuration configuration = new Configuration();
-
-
+		
 		configuration.setProperty("hibernate.connection.driver_class", "org.h2.Driver"); // use H2 driver
 		configuration.setProperty("hibernate.dialect", "org.hibernate.dialect.H2Dialect"); // use H2 dialect
 		configuration.setProperty("hibernate.connection.url", "jdbc:h2:./exampledb"); // create database called "exampledb" in project directory (aka working directory)
@@ -129,7 +129,7 @@ public class DB {
 		
 		DBUser user = getUserByEmail(session, email);
 		if (user == null) throw new DBNotFoundException(); // check user exists
-		if (!user.getPassword().equals(password)) throw new DBIncorrectPasswordException(); // check password
+		if (!BCrypt.checkpw(password, user.getHashedPassword())) throw new DBIncorrectPasswordException(); // check password
 		
 		DBLoginSession login = createLoginSession(session, user);
 		String token = login.getToken();
@@ -232,7 +232,7 @@ public class DB {
 		
 		// set all the stuff (remember not to call setId(), as the Hibernate will generate that for us
 		user.setEmail(emailAddress);
-		user.setPassword(password);
+		user.setHashedPassword(BCrypt.hashpw(password, BCrypt.gensalt()));
 		user.setName(displayName);
 		user.setBgColor(0xFFFFFF);
 		user.setTimestamp(System.currentTimeMillis());
@@ -586,12 +586,12 @@ public class DB {
 		DBUser user = DB.getUserByToken(session, token);
 		if (user == null) throw new DBNotFoundException();
 		
-		if (!password.equals(user.getPassword())) throw new DBIncorrectPasswordException(user.flatten());
+		if (!BCrypt.checkpw(password, user.getHashedPassword())) throw new DBIncorrectPasswordException(user.flatten());
 		if (!password1.equals(password2)) throw new DBPasswordMismatchException(user.flatten());
 		
 		session.beginTransaction();
 		try {
-			user.setPassword(password1);
+			user.setHashedPassword(BCrypt.hashpw(password1, BCrypt.gensalt()));
 			session.merge(user);
 			session.getTransaction().commit();
 		} catch (Exception e) {
@@ -646,21 +646,21 @@ public class DB {
 		return true;
 	}
 	
-	/*private static void emailSetup() {
+	/*private static void emailSetup(String SMTP_EMAIL, String SMTP_PASSWORD, String SMTP_SERVER) {
 		DB.startDatabaseConnection();
 		Session session = DB.sessionFactory.openSession();
 		
 		DBSiteSetting email = new DBSiteSetting();
 		email.setKey("SMTP_EMAIL");
-		email.setValue("your.email.address@example.com");
+		email.setValue(SMTP_EMAIL);
 		
 		DBSiteSetting password = new DBSiteSetting();
 		password.setKey("SMTP_PASSWORD");
-		password.setValue("ThIsIsYoUrEmAiLpAsSwOrD");
+		password.setValue(SMTP_PASSWORD);
 		
 		DBSiteSetting server = new DBSiteSetting();
 		server.setKey("SMTP_SERVER");
-		server.setValue("smtp.example.com");
+		server.setValue(SMTP_SERVER);
 		
 		try {
 			session.beginTransaction();
