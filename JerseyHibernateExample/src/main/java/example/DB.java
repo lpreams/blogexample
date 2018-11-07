@@ -29,6 +29,7 @@ import example.db.DBBlog.FlatBlog;
 import example.db.DBComment;
 import example.db.DBComment.FlatComment;
 import example.db.DBLoginSession;
+import example.db.DBPasswordReset;
 import example.db.DBPost;
 import example.db.DBPost.FlatPost;
 import example.db.DBReport;
@@ -45,6 +46,29 @@ public class DB {
 	 */
 	public static void startDatabaseConnection() {
 		sessionFactory = newSessionFactory();
+		/**
+		 * The following Thread will run once per hour and will look for expired password reset requests
+		 */
+		new Thread(()-> {
+			while (true) {
+				
+				Session session = sessionFactory.openSession();
+				
+				long cutoff = System.currentTimeMillis() - (1000*60*60*24); // 24 hours ago
+				
+				session.beginTransaction();
+				try {
+					session.createQuery("delete DBPasswordReset pr where pr.date<" + cutoff).executeUpdate();
+					session.getTransaction().commit();
+				} catch (Exception e) {
+					session.getTransaction().rollback();
+				}
+				
+				session.close();
+				
+				try{Thread.sleep(1000*60*60);}catch(Exception e){} // sleep for 1 hour
+			}
+		}).start();
 	}
 	
 	/**
@@ -71,6 +95,7 @@ public class DB {
 		configuration.addAnnotatedClass(DBBlog.class);
 		configuration.addAnnotatedClass(DBReport.class);
 		configuration.addAnnotatedClass(DBSiteSetting.class);
+		configuration.addAnnotatedClass(DBPasswordReset.class);
 
 		StandardServiceRegistryBuilder builder = new StandardServiceRegistryBuilder().applySettings(configuration.getProperties()); // apply default settings 
 		return configuration.buildSessionFactory(builder.build()); // build the SessionFactory
@@ -678,6 +703,66 @@ public class DB {
 	}*/
 	
 	/**
+	 * Send user an email allowing them to reset their password
+	 * @param email User-inputted email address linked to user account
+	 * @throws DBNotFoundException if email not found in database
+	 * @throws DBEmailFailedToSendException if backend failed to send email
+	 * @throws DBRollbackException database rollback (should never happen)
+	 */
+	public static void forgotPassword(String email, String newPassword) throws DBNotFoundException, DBEmailFailedToSendException, DBRollbackException {
+		Session session = DB.sessionFactory.openSession();
+		
+		DBUser user = DB.getUserByEmail(session, email);
+		if (user == null) throw new DBNotFoundException();
+		
+		DBPasswordReset reset = new DBPasswordReset();
+		reset.setUser(user);
+		reset.setDate(System.currentTimeMillis());
+		reset.setToken(generateLoginToken(session));
+		reset.setNewHashedPassword(BCrypt.hashpw(newPassword, BCrypt.gensalt()));
+		
+		String body = "To reset your password, <a href=http://localhost:8080/resetpassword/" + 
+				reset.getToken() + 
+				">click here</a> or copy/paste the following link to your browser: http://localhost:8080/resetpassword/" + 
+				reset.getToken() +
+				"<br/>This link will expire in 24 hours.";
+		if (!DB.sendEmail(user.getEmail(), "Blog password reset", body, session)) throw new DB.DBEmailFailedToSendException();
+		
+		session.beginTransaction();
+		try {
+			session.save(reset);
+			session.getTransaction().commit();
+		} catch (Exception e) {
+			session.getTransaction().rollback();
+			throw new DBRollbackException();
+		}
+		
+		session.close();
+	}
+	
+	public static void resetPassword(String token) throws DBNotFoundException, DBRollbackException {
+		Session session = DB.sessionFactory.openSession();
+		
+		List<DBPasswordReset> list = session.createQuery("from DBPasswordReset where token='" + token + "'", DBPasswordReset.class).list();
+		if (list.size() < 1) throw new DBNotFoundException();
+		DBPasswordReset pr = list.get(0);
+		DBUser user = pr.getUser();
+		
+		try {
+			session.beginTransaction();
+			user.setHashedPassword(pr.getNewHashedPassword());
+			pr.setUser(null);
+			session.merge(user);
+			session.delete(pr);
+			session.getTransaction().commit();
+		} catch (Exception e) {
+			session.getTransaction().rollback();
+			throw new DBRollbackException();
+		}
+		session.close();
+	}
+	
+	/**
 	 * Generate a unique login token
 	 * @param session database session
 	 * @return new login token
@@ -691,7 +776,9 @@ public class DB {
 		while (true) {
 			StringBuilder sb = new StringBuilder();
 			for (int i=0; i<200; ++i) sb.append(list.get(r.nextInt(list.size())));
-			if (session.createQuery("from DBLoginSession where token='" + sb.toString() + "'").list().size() == 0) return sb.toString();
+			if (session.createQuery("from DBLoginSession where token='" + sb.toString() + "'").list().size() != 0) continue;
+			else if (session.createQuery("from DBPasswordReset where token='" + sb.toString() + "'").list().size() != 0) continue;
+			else return sb.toString();
 		}
 	}
 	
@@ -734,6 +821,13 @@ public class DB {
 		public DBIncorrectPasswordException(FlatUser user) {
 			super("password incorrect, no changes made");
 			this.user = user;
+		}
+	}
+	
+	public static class DBEmailFailedToSendException extends Exception {
+		private static final long serialVersionUID = -4642299875091351165L;
+		public DBEmailFailedToSendException() {
+			super("Email failed to send");
 		}
 	}
 }

@@ -19,6 +19,7 @@ import javax.ws.rs.core.Response;
 import org.apache.commons.text.StringEscapeUtils;
 
 import example.DB.BlogPostWithComments;
+import example.DB.DBEmailFailedToSendException;
 import example.DB.DBIncorrectPasswordException;
 import example.DB.DBNotFoundException;
 import example.DB.DBPasswordMismatchException;
@@ -382,6 +383,45 @@ public class API {
 		} catch (DBRollbackException e) {
 			return Response.ok("Rollback exception (should never happen)").build();
 		}
+	}
+	
+	@GET
+	@Path("/forgotpassword")
+	public static Response forgotPassword(@CookieParam("blogtoken") Cookie token) {
+		if (DB.getUserByToken(token) != null) return Response.ok("You are already logged in").build();
+		return Response.ok(API.textFileToString("forgotpassword.html", null).replace("$MESSAGE", "")).build();
+	}
+	
+	@POST
+	@Path("/forgotpassword")
+	public static Response forgotPasswordPost(@CookieParam("fbtoken") Cookie token, @FormParam("email") String email, @FormParam("password1") String password1, @FormParam("password2") String password2) {
+		if (DB.getUserByToken(token) != null) return Response.ok("You are already logged in").build();
+		if (password1.compareTo(password2) != 0) return Response.ok(API.textFileToString("forgotpassword.html", null).replace("$MESSAGE", "Passwords did not match")).build();
+
+		try {
+			DB.forgotPassword(email, password1);
+		} catch (DBNotFoundException e) {
+			return Response.ok(API.textFileToString("forgotpassword.html", null).replace("$MESSAGE", "Email address not found")).build();
+		} catch (DBEmailFailedToSendException e) {
+			return Response.ok("Failed to send reset email, please try again later").build();
+		} catch (DBRollbackException e) {
+			return Response.ok("Database rollback (should never happend)").build();
+		}
+		
+		return Response.ok("Please check your email for a new message from us with instructions to complete your password reset").build();
+	}
+	
+	@GET
+	@Path("/resetpassword/{token}")
+	public static Response resetPassword(@PathParam("token") String token) {
+		try {
+			DB.resetPassword(token);
+		} catch (DBNotFoundException e) {
+			return Response.ok("Link invalid or expired.").build();
+		} catch (DBRollbackException e) {
+			return Response.ok("Database rollback (should never happend)").build();
+		}
+		return Response.ok(textFileToString("passwordresetsuccess.html", null)).build();
 	}
 	
 	/**
