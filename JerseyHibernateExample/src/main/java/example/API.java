@@ -211,16 +211,34 @@ public class API {
 	public static Response createAccountPost(@CookieParam("blogtoken") Cookie token, @FormParam("email") String email, @FormParam("name") String name, @FormParam("password1") String password1, @FormParam("password2") String password2) {
 		if (DB.getUserByToken(token) != null) return Response.ok("You are already logged in to an account").build();
 		if (password1.compareTo(password2) != 0) return Response.ok("passwords do not match").build();
-		String newToken;
+		//String newToken;
 		try {
-			newToken = DB.addUser(email, password1, name);
+			//newToken = DB.addUser(email, password1, name);
+			DB.addUser(email, password1, name);
 		} catch (DBRollbackException e) {
 			return Response.ok("email address already in use").build(); 
+		} catch (DBEmailFailedToSendException e) {
+			return Response.ok("Failed to send reset email, please try again later").build();
 		}
 		
-		NewCookie cookie = new NewCookie("blogtoken", newToken);
+		return Response.ok("Check your email for a confirmation link.").build();
 		
-		return Response.seeOther(URI.create("/")).cookie(cookie).build(); // redirect to homepage on success
+		
+	}
+	
+	@GET
+	@Path("/confirmaccount/{token}")
+	public static Response confirmAccount(@PathParam("token") String confirmationToken) {
+		try {
+			String newToken = DB.confirmUser(confirmationToken);
+			NewCookie cookie = new NewCookie("blogtoken", newToken);
+			return Response.ok(textFileToString("generic.html", null).replace("$MESSAGE", "Account confirmed, you may now log in.")).cookie(cookie).build(); // redirect to homepage on success
+		} catch (DBNotFoundException e) {
+			return Response.ok("Confirmation link invalid or expired.").build();
+		} catch (DBRollbackException e) {
+			return Response.ok("Rollback exception (should never happen)").build();
+		}
+		
 	}
 	
 	@POST
@@ -417,7 +435,7 @@ public class API {
 		try {
 			DB.resetPassword(token);
 		} catch (DBNotFoundException e) {
-			return Response.ok("Link invalid or expired.").build();
+			return Response.ok("Confirmation link invalid or expired.").build();
 		} catch (DBRollbackException e) {
 			return Response.ok("Database rollback (should never happend)").build();
 		}

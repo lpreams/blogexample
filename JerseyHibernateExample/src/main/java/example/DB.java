@@ -34,6 +34,7 @@ import example.db.DBPost;
 import example.db.DBPost.FlatPost;
 import example.db.DBReport;
 import example.db.DBSiteSetting;
+import example.db.DBUnconfirmedUser;
 import example.db.DBUser;
 import example.db.DBUser.FlatUser;
 
@@ -52,19 +53,16 @@ public class DB {
 		new Thread(()-> {
 			while (true) {
 				
-				Session session = sessionFactory.openSession();
-				
-				long cutoff = System.currentTimeMillis() - (1000*60*60*24); // 24 hours ago
-				
-				session.beginTransaction();
-				try {
-					session.createQuery("delete DBPasswordReset pr where pr.date<" + cutoff).executeUpdate();
-					session.getTransaction().commit();
-				} catch (Exception e) {
-					session.getTransaction().rollback();
+				try (Session session = sessionFactory.openSession()) {
+					long cutoff = System.currentTimeMillis() - (1000 * 60 * 60 * 24); // 24 hours ago
+					session.beginTransaction();
+					try {
+						session.createQuery("delete DBPasswordReset pr where pr.date<" + cutoff).executeUpdate();
+						session.getTransaction().commit();
+					} catch (Exception e) {
+						session.getTransaction().rollback();
+					}
 				}
-				
-				session.close();
 				
 				try{Thread.sleep(1000*60*60);}catch(Exception e){} // sleep for 1 hour
 			}
@@ -96,6 +94,7 @@ public class DB {
 		configuration.addAnnotatedClass(DBReport.class);
 		configuration.addAnnotatedClass(DBSiteSetting.class);
 		configuration.addAnnotatedClass(DBPasswordReset.class);
+		configuration.addAnnotatedClass(DBUnconfirmedUser.class);
 
 		StandardServiceRegistryBuilder builder = new StandardServiceRegistryBuilder().applySettings(configuration.getProperties()); // apply default settings 
 		return configuration.buildSessionFactory(builder.build()); // build the SessionFactory
@@ -106,12 +105,12 @@ public class DB {
 	 * @return FlatUser containing user, or null if user does not exist ** IMPORTANT, DOES NOT THROW EXCEPTION **
 	 */
 	public static FlatUser getUserByToken(Cookie token) {
-		Session session = sessionFactory.openSession(); // open connection to database
-		DBUser user = getUserByToken(session, token);
-		if (user == null) return null;
-		FlatUser flatUser = user.flatten();
-		session.close();
-		return flatUser;
+		try (Session session = sessionFactory.openSession()) { // open connection to database
+			DBUser user = getUserByToken(session, token);
+			if (user == null) return null;
+			FlatUser flatUser = user.flatten();
+			return flatUser;
+		}
 	}
 	
 	/**
@@ -150,17 +149,14 @@ public class DB {
 	 * @throws DBRollbackException if the database was rolled back (should never happend) 
 	 */
 	public static String createLoginSession(String email, String password) throws DBNotFoundException, DBIncorrectPasswordException, DBRollbackException {
-		Session session = sessionFactory.openSession();
-		
-		DBUser user = getUserByEmail(session, email);
-		if (user == null) throw new DBNotFoundException(); // check user exists
-		if (!BCrypt.checkpw(password, user.getHashedPassword())) throw new DBIncorrectPasswordException(); // check password
-		
-		DBLoginSession login = createLoginSession(session, user);
-		String token = login.getToken();
-		
-		session.close();
-		return token;
+		try (Session session = sessionFactory.openSession()) {
+			DBUser user = getUserByEmail(session, email);
+			if (user == null) throw new DBNotFoundException(); // check user exists
+			if (!BCrypt.checkpw(password, user.getHashedPassword())) throw new DBIncorrectPasswordException(); // check password
+			DBLoginSession login = createLoginSession(session, user);
+			String token = login.getToken();
+			return token;
+		}
 	}
 	
 	/**
@@ -168,18 +164,18 @@ public class DB {
 	 * @param token token from user, to be deleted
 	 */
 	public static void deleteLoginSession(Cookie token) {
-		Session session = sessionFactory.openSession();
+		try (Session session = sessionFactory.openSession()) {
 		
-		List<DBLoginSession> list = session.createQuery("from DBLoginSession ls where ls.token='" + token.getValue() + "'",DBLoginSession.class).list(); 
-		try {
-			session.beginTransaction();
-			for (DBLoginSession login : list) session.delete(login);
-			session.getTransaction().commit();
-		} catch (Exception e) {
-			session.getTransaction().rollback();
+			List<DBLoginSession> list = session.createQuery("from DBLoginSession ls where ls.token='" + token.getValue() + "'",DBLoginSession.class).list(); 
+			try {
+				session.beginTransaction();
+				for (DBLoginSession login : list) session.delete(login);
+				session.getTransaction().commit();
+			} catch (Exception e) {
+				session.getTransaction().rollback();
+			}
+			
 		}
-		
-		session.close();
 	}
 	
 	/**
@@ -232,15 +228,15 @@ public class DB {
 	 * @throws DBNotFoundException if email address not in database
 	 */
 	public static FlatUser getUserByEmail(String emailAddress) throws DBNotFoundException {
-		Session session = sessionFactory.openSession();
-		
-		DBUser dbUser = getUserByEmail(session, emailAddress);
-		
-		if (dbUser == null) throw new DBNotFoundException();
-		
-		FlatUser user = dbUser.flatten(); // get the user from the result list (call flatten() before closing session)
-		session.close(); // remember to close the session!
-		return user;
+		try (Session session = sessionFactory.openSession()) {
+			
+			DBUser dbUser = getUserByEmail(session, emailAddress);
+			
+			if (dbUser == null) throw new DBNotFoundException();
+			
+			FlatUser user = dbUser.flatten(); // get the user from the result list (call flatten() before closing session)
+			return user;
+		}
 	}
 		
 	/**
@@ -250,33 +246,62 @@ public class DB {
 	 * @param displayName new user's dislpay name
 	 * @return newly-created login token
 	 * @throws DBRollbackException when email already exists
+	 * @throws DBEmailFailedToSendException if email failed to send
 	 */
-	public static String addUser(String emailAddress, String password, String displayName) throws DBRollbackException {
-		Session session = sessionFactory.openSession();
-		DBUser user = new DBUser(); // create DBUser object from scratch
-		
-		// set all the stuff (remember not to call setId(), as the Hibernate will generate that for us
-		user.setEmail(emailAddress);
-		user.setHashedPassword(BCrypt.hashpw(password, BCrypt.gensalt()));
-		user.setName(displayName);
-		user.setBgColor(0xFFFFFF);
-		user.setTimestamp(System.currentTimeMillis());
-		
-		session.beginTransaction(); // you must begin a transaction when modifying the database
-		session.save(user); // specifies that user should be saved to the database as a new row
-		try {
-			session.getTransaction().commit(); // commit the transaction to the database
-		} catch (Exception e) {
-			// ALWAYS put commit() in a try block and call rollback() if anything goes wrong. Hibernate will bitch at you if you a transaction is left open (open = neither committed nor rolled back)
-			session.getTransaction().rollback(); 
-			throw new DBRollbackException();
+	public static void addUser(String emailAddress, String password, String displayName) throws DBRollbackException, DBEmailFailedToSendException {
+		try (Session session = sessionFactory.openSession()) {
+			if (session.createQuery("from DBUser where email='" + emailAddress + "'").uniqueResult() != null) throw new DBRollbackException();
+			else if (session.createQuery("from DBUnconfirmedUser where email='" + emailAddress + "'").uniqueResult() != null) throw new DBRollbackException();
+			DBUnconfirmedUser user = new DBUnconfirmedUser();
+			user.setEmail(emailAddress);
+			user.setHashedPassword(BCrypt.hashpw(password, BCrypt.gensalt()));
+			user.setName(displayName);
+			user.setTimestamp(System.currentTimeMillis());
+			user.setToken(generateURLToken(session));
+			
+			session.beginTransaction();
+			session.save(user);
+			try {
+				session.getTransaction().commit();
+			} catch (Exception e) {
+				session.getTransaction().rollback();
+				throw new DBRollbackException();
+			}
+			
+			String body = "To confirm your account, <a href=http://localhost:8080/confirmaccount/" + 
+					user.getToken() + 
+					">click here</a>.<br/>This link will expire in 24 hours.";
+			
+			if (!DB.sendEmail(emailAddress, "Confirm your account", body, session)) throw new DB.DBEmailFailedToSendException();
 		}
-		
-		DBLoginSession login = DB.createLoginSession(session, user);
-		
-		return login.getToken();
-		
-		// the user is now saved in the database
+	}
+	
+	public static String confirmUser(String token) throws DBNotFoundException, DBRollbackException {
+		try (Session session = sessionFactory.openSession()) {
+			DBUnconfirmedUser uuser = session.createQuery("from DBUnconfirmedUser where token='" + token + "'", DBUnconfirmedUser.class).uniqueResult();
+			if (uuser == null) throw new DBNotFoundException();
+			
+			DBUser user = new DBUser();
+			user.setBgColor(0xFFFFFF);
+			user.setEmail(uuser.getEmail());
+			user.setHashedPassword(uuser.getHashedPassword());
+			user.setName(uuser.getName());
+			user.setTimestamp(uuser.getTimestamp());
+			
+			try {
+				session.beginTransaction();
+				session.save(user);
+				session.delete(uuser);
+				session.getTransaction().commit();
+				DBLoginSession login = DB.createLoginSession(session, user);
+				return login.getToken();
+			} catch (Exception e) {
+				session.getTransaction().rollback();
+				throw new DBRollbackException();
+			}
+			
+			
+		}
 	}
 	
 	/**
@@ -284,19 +309,18 @@ public class DB {
 	 * @return list of posts
 	 */
 	public static List<FlatPost> getAllBlogPosts() {
-		Session session = sessionFactory.openSession();
-		
-		CriteriaBuilder cb = session.getCriteriaBuilder(); 
-		
-		CriteriaQuery<DBPost> query = cb.createQuery(DBPost.class); 
-		Root<DBPost> root = query.from(DBPost.class); 
-		query.select(root).orderBy(cb.desc(root.get("date"))); // with no where clause, the query will select the entire table (dangerous in production, fine for an example)
-				
-		List<DBPost> result = session.createQuery(query).list();
-		
-		List<FlatPost> list = result.stream().map(post->post.flatten()).collect(Collectors.toList()); // map DBPosts to FlatPosts, again, make sure to call flatten() before closing the session
-		session.close(); // remember to close the session!
-		return list;
+		try (Session session = sessionFactory.openSession()) {
+			
+			CriteriaBuilder cb = session.getCriteriaBuilder();
+			
+			CriteriaQuery<DBPost> query = cb.createQuery(DBPost.class);
+			Root<DBPost> root = query.from(DBPost.class);
+			query.select(root).orderBy(cb.desc(root.get("date")));
+			List<DBPost> result = session.createQuery(query).list();
+			
+			List<FlatPost> list = result.stream().map(post -> post.flatten()).collect(Collectors.toList());
+			return list;
+		}
 	}
 	
 	public static class BlogPostWithComments {
@@ -315,18 +339,18 @@ public class DB {
 	 * @throws DBNotFoundException if id does not exist in the database
 	 */
 	public static BlogPostWithComments getPostById(long id) throws DBNotFoundException {
-		Session session = sessionFactory.openSession();
+		try (Session session = sessionFactory.openSession()) {
+			
+			DBPost result = session.get(DBPost.class, id);
+			if (result == null) throw new DBNotFoundException();
+			FlatPost post = result.flatten();
+			
+			List<FlatComment> comments = session.createQuery("from DBComment comment where comment.post.id=" + id, DBComment.class)
+					.stream().map(comment->comment.flatten()).collect(Collectors.toList());
 		
-		DBPost result = session.get(DBPost.class, id);
-		if (result == null) throw new DBNotFoundException();
-		FlatPost post = result.flatten();
-		
-		List<FlatComment> comments = session.createQuery("from DBComment comment where comment.post.id=" + id, DBComment.class)
-				.stream().map(comment->comment.flatten()).collect(Collectors.toList());
-		
-		session.close();
-		
-		return new BlogPostWithComments(post, comments) ;
+			
+			return new BlogPostWithComments(post, comments) ;
+		}
 	}
 	
 	/**
@@ -336,17 +360,16 @@ public class DB {
 	 * @throws DBNotFoundException if id does not exist in database
 	 */
 	public static FlatBlog getBlogById(long id) throws DBNotFoundException {
-		Session session = sessionFactory.openSession();
-		
-		DBBlog result = session.get(DBBlog.class, id);
-		
-		if (result == null) throw new DBNotFoundException();
-		
-		FlatBlog blog = new FlatBlog(result, session);
-		
-		session.close();
-		
-		return blog;
+		try (Session session = sessionFactory.openSession()) {
+			
+			DBBlog result = session.get(DBBlog.class, id);
+			
+			if (result == null) throw new DBNotFoundException();
+			
+			FlatBlog blog = new FlatBlog(result, session);
+			
+			return blog;
+		}
 	}
 	
 	/**
@@ -358,34 +381,32 @@ public class DB {
 	 * @throws DBRollbackException if database was rolled back (should never happen)
 	 */
 	public static FlatBlog addBlog(Cookie token, String title) throws DBNotFoundException, DBRollbackException {
-		Session session = sessionFactory.openSession();
-		
-		DBUser user = getUserByToken(session, token);
-		if (user == null) throw new DBNotFoundException();
-		
-		DBBlog blog = new DBBlog();
-		blog.setAuthor(user);
-		blog.setDate(System.currentTimeMillis());
-		blog.setTitle(title);
-		
-		session.beginTransaction();
-		long id;
-		try {
-			id = (long) session.save(blog);
-			session.getTransaction().commit();
-		} catch (Exception e) {
-			session.getTransaction().rollback();
-			throw new DBRollbackException();
+		try (Session session = sessionFactory.openSession()) {
+			
+			DBUser user = getUserByToken(session, token);
+			if (user == null) throw new DBNotFoundException();
+			
+			DBBlog blog = new DBBlog();
+			blog.setAuthor(user);
+			blog.setDate(System.currentTimeMillis());
+			blog.setTitle(title);
+			
+			session.beginTransaction();
+			long id;
+			try {
+				id = (long) session.save(blog);
+				session.getTransaction().commit();
+			} catch (Exception e) {
+				session.getTransaction().rollback();
+				throw new DBRollbackException();
+			}
+			
+			blog.setId(id);
+			
+			FlatBlog ret = blog.flatten();
+			
+			return ret;
 		}
-		
-		blog.setId(id);
-		
-		
-		FlatBlog ret = blog.flatten();
-		
-		session.close();
-		
-		return ret;
 	}
 	
 	/**
@@ -399,40 +420,38 @@ public class DB {
 	 * @throws DBRollbackException if database was rolled back
 	 */
 	public static FlatPost addPost(Cookie token, long blogid, String title, String body) throws DBNotFoundException, DBRollbackException {
-		Session session = sessionFactory.openSession();
-		
-		DBUser user = getUserByToken(session, token);
-		if (user == null) throw new DBNotFoundException();
-		
-		DBBlog blog = session.get(DBBlog.class, blogid);
-		if (blog == null) throw new DBNotFoundException();
-		
-		if (blog.getAuthor().getId() != user.getId()) throw new DBNotFoundException();
-		
-		DBPost post = new DBPost();
-		post.setBlog(blog);
-		post.setBody(body);
-		post.setDate(System.currentTimeMillis());
-		post.setTitle(title);
-		
-		session.beginTransaction();
-		long id;
-		try {
-			id = (long) session.save(post);
-			session.getTransaction().commit();
-		} catch (Exception e) {
-			session.getTransaction().rollback();
-			throw new DBRollbackException();
+		try (Session session = sessionFactory.openSession()) {
+			
+			DBUser user = getUserByToken(session, token);
+			if (user == null) throw new DBNotFoundException();
+			
+			DBBlog blog = session.get(DBBlog.class, blogid);
+			if (blog == null) throw new DBNotFoundException();
+			
+			if (blog.getAuthor().getId() != user.getId()) throw new DBNotFoundException();
+			
+			DBPost post = new DBPost();
+			post.setBlog(blog);
+			post.setBody(body);
+			post.setDate(System.currentTimeMillis());
+			post.setTitle(title);
+			
+			session.beginTransaction();
+			long id;
+			try {
+				id = (long) session.save(post);
+				session.getTransaction().commit();
+			} catch (Exception e) {
+				session.getTransaction().rollback();
+				throw new DBRollbackException();
+			}
+			
+			post.setId(id);
+			
+			FlatPost ret = post.flatten();
+			
+			return ret;
 		}
-		
-		post.setId(id);
-		
-		
-		FlatPost ret = post.flatten();
-		
-		session.close();
-		
-		return ret;
 	}
 	
 	public static class UserProfileResult {
@@ -453,19 +472,19 @@ public class DB {
 	 * @throws DBNotFoundException
 	 */
 	public static UserProfileResult getUserProfile(long id) throws DBNotFoundException {
-		Session session = sessionFactory.openSession();
-		
-		DBUser user = session.get(DBUser.class, id); 
-		if (user == null) throw new DBNotFoundException();
-
-		List<FlatPost> posts = session.createQuery("from DBPost post where post.blog.author.id="+id, DBPost.class)
-				.stream().map(post->post.flatten()).collect(Collectors.toList());
-		
-		List<FlatBlog> blogs = session.createQuery("from DBBlog blog where blog.author.id="+id, DBBlog.class)
-				.stream().map(post->post.flatten()).collect(Collectors.toList()); 
-		
-		session.close();
-		return new UserProfileResult(user.flatten(), blogs, posts);
+		try (Session session = sessionFactory.openSession()) {
+			
+			DBUser user = session.get(DBUser.class, id); 
+			if (user == null) throw new DBNotFoundException();
+			
+			List<FlatPost> posts = session.createQuery("from DBPost post where post.blog.author.id="+id, DBPost.class)
+					.stream().map(post->post.flatten()).collect(Collectors.toList());
+			
+			List<FlatBlog> blogs = session.createQuery("from DBBlog blog where blog.author.id="+id, DBBlog.class)
+					.stream().map(post->post.flatten()).collect(Collectors.toList()); 
+			
+			return new UserProfileResult(user.flatten(), blogs, posts);
+		}
 	}
 	
 	/**
@@ -477,25 +496,24 @@ public class DB {
 	 * @throws DBNotFoundException token does not exist in database (not logged in)
 	 */
 	public static FlatUser setBgColor(Cookie token, int color) throws DBRollbackException, DBNotFoundException {
-		Session session = sessionFactory.openSession();
-		DBUser user = DB.getUserByToken(session, token);
-		
-		if (user == null) throw new DBNotFoundException();
-		
-		user.setBgColor(color);
-		
-		session.beginTransaction();
-		session.merge(user);
-		try {
-			session.getTransaction().commit();
-		} catch (Exception e) {
-			session.getTransaction().rollback();
-			throw new DBRollbackException();
-		} finally {
-			session.close();
+		try (Session session = sessionFactory.openSession()) {
+			DBUser user = DB.getUserByToken(session, token);
+			
+			if (user == null) throw new DBNotFoundException();
+			
+			user.setBgColor(color);
+			
+			session.beginTransaction();
+			session.merge(user);
+			try {
+				session.getTransaction().commit();
+			} catch (Exception e) {
+				session.getTransaction().rollback();
+				throw new DBRollbackException();
+			}
+			
+			return user.flatten();
 		}
-		
-		return user.flatten();
 	}
 	
 	/**
@@ -508,36 +526,35 @@ public class DB {
 	 * @throws DBRollbackException should never happen
 	 */
 	public static FlatComment addComment(Cookie token, String body, long postID) throws DBNotFoundException, DBRollbackException {
-		Session session = sessionFactory.openSession();
-		
-		DBUser user = getUserByToken(session, token);
-		if (user==null) throw new DBNotFoundException();
-				
-		DBPost post = session.createQuery("from DBPost post where post.id="+postID, DBPost.class).uniqueResult();
-		
-		DBComment comment = new DBComment();
-		comment.setAuthor(user);
-		comment.setBody(body);
-		comment.setDate(System.currentTimeMillis());
-		comment.setPost(post);
-		
-		session.beginTransaction();
-		long id;
-		try {
-			id = (long) session.save(comment);
-			session.getTransaction().commit();
-		} catch (Exception e) {
-			session.getTransaction().rollback();
-			throw new DBRollbackException();
+		try (Session session = sessionFactory.openSession()) {
+			
+			DBUser user = getUserByToken(session, token);
+			if (user == null) throw new DBNotFoundException();
+			
+			DBPost post = session.createQuery("from DBPost post where post.id=" + postID, DBPost.class).uniqueResult();
+			
+			DBComment comment = new DBComment();
+			comment.setAuthor(user);
+			comment.setBody(body);
+			comment.setDate(System.currentTimeMillis());
+			comment.setPost(post);
+			
+			session.beginTransaction();
+			long id;
+			try {
+				id = (long) session.save(comment);
+				session.getTransaction().commit();
+			} catch (Exception e) {
+				session.getTransaction().rollback();
+				throw new DBRollbackException();
+			}
+			
+			comment.setId(id);
+			
+			FlatComment ret = new FlatComment(comment);
+			
+			return ret;
 		}
-		
-		comment.setId(id);
-		
-		FlatComment ret = new FlatComment(comment);
-		
-		session.close();
-		
-		return ret;
 	}
 	
 	/**
@@ -546,17 +563,15 @@ public class DB {
 	 * @return list of FlatPosts which match search query
 	 */
 	public static List<FlatPost> searchPosts(String search) {
-		Session session = sessionFactory.openSession();
-		
-		search = "%" + search.toLowerCase().replace("\\s+", "%") + "%";
-		
-		String hql = "from DBPost post where lower(post.body) like :search OR lower(post.title) like :search";
-		List<FlatPost> list = session.createQuery(hql, DBPost.class).setParameter("search", search).stream()
-				.map(post->post.flatten()).collect(Collectors.toList());
-				
-		session.close();
-		
-		return list;
+		try (Session session = sessionFactory.openSession()) {
+			
+			search = "%" + search.toLowerCase().replace("\\s+", "%") + "%";
+			
+			String hql = "from DBPost post where lower(post.body) like :search OR lower(post.title) like :search";
+			List<FlatPost> list = session.createQuery(hql, DBPost.class).setParameter("search", search).stream().map(post -> post.flatten()).collect(Collectors.toList());
+			
+			return list;
+		}
 	}
 	
 	/**
@@ -567,31 +582,29 @@ public class DB {
 	 * @throws DBRollbackException should not happen
 	 */
 	public static FlatUser submitReport(Cookie token, String suggestion) throws DBNotFoundException, DBRollbackException {
-		Session session = sessionFactory.openSession();
-		
-		DBUser user = DB.getUserByToken(session, token);
-		if (user == null) throw new DB.DBNotFoundException();
-		
-		DBReport report = new DBReport();
-		report.setAuthor(user);
-		report.setBody(suggestion);
-		report.setDate(System.currentTimeMillis());
-		
-		try {
-			session.beginTransaction();
-			session.save(report);
-			session.getTransaction().commit();
-		} catch (Exception e) {
-			session.getTransaction().rollback();
-			//System.err.println(e);
-			e.printStackTrace();
-			throw new DB.DBRollbackException();
+		try (Session session = sessionFactory.openSession()) {
+			
+			DBUser user = DB.getUserByToken(session, token);
+			if (user == null) throw new DB.DBNotFoundException();
+			
+			DBReport report = new DBReport();
+			report.setAuthor(user);
+			report.setBody(suggestion);
+			report.setDate(System.currentTimeMillis());
+			
+			try {
+				session.beginTransaction();
+				session.save(report);
+				session.getTransaction().commit();
+			} catch (Exception e) {
+				session.getTransaction().rollback();
+				e.printStackTrace();
+				throw new DB.DBRollbackException();
+			}
+			FlatUser result = user.flatten();
+			
+			return result;
 		}
-		FlatUser result = user.flatten();
-		
-		session.close();
-		
-		return result;
 	}
 	
 	/**
@@ -607,26 +620,26 @@ public class DB {
 	 * @throws DBRollbackException rollback 
 	 */
 	public static FlatUser changeUserPassword(Cookie token, String password, String password1, String password2) throws DBNotFoundException, DBIncorrectPasswordException, DBPasswordMismatchException, DBRollbackException {
-		Session session = sessionFactory.openSession();
-		DBUser user = DB.getUserByToken(session, token);
-		if (user == null) throw new DBNotFoundException();
-		
-		if (!BCrypt.checkpw(password, user.getHashedPassword())) throw new DBIncorrectPasswordException(user.flatten());
-		if (!password1.equals(password2)) throw new DBPasswordMismatchException(user.flatten());
-		
-		session.beginTransaction();
-		try {
-			user.setHashedPassword(BCrypt.hashpw(password1, BCrypt.gensalt()));
-			session.merge(user);
-			session.getTransaction().commit();
-		} catch (Exception e) {
-			session.getTransaction().rollback();
-			throw new DBRollbackException();
+		try (Session session = sessionFactory.openSession()) {
+			DBUser user = DB.getUserByToken(session, token);
+			if (user == null) throw new DBNotFoundException();
+			
+			if (!BCrypt.checkpw(password, user.getHashedPassword())) throw new DBIncorrectPasswordException(user.flatten());
+			if (!password1.equals(password2)) throw new DBPasswordMismatchException(user.flatten());
+			
+			session.beginTransaction();
+			try {
+				user.setHashedPassword(BCrypt.hashpw(password1, BCrypt.gensalt()));
+				session.merge(user);
+				session.getTransaction().commit();
+			} catch (Exception e) {
+				session.getTransaction().rollback();
+				throw new DBRollbackException();
+			}
+			
+			FlatUser fuser = user.flatten();
+			return fuser;
 		}
-		
-		FlatUser fuser = user.flatten();
-		session.close(); 
-		return fuser;
 	}
 	
     /**
@@ -671,36 +684,40 @@ public class DB {
 		return true;
 	}
 	
-	/*private static void emailSetup(String SMTP_EMAIL, String SMTP_PASSWORD, String SMTP_SERVER) {
+	public static void main(String[] asdf) {
+		DB.emailSetup("blogproject.csci490@gmail.com", "blogprojectpassword", "smtp.gmail.com");
+	}
+	
+	private static void emailSetup(String SMTP_EMAIL, String SMTP_PASSWORD, String SMTP_SERVER) {
 		DB.startDatabaseConnection();
-		Session session = DB.sessionFactory.openSession();
-		
-		DBSiteSetting email = new DBSiteSetting();
-		email.setKey("SMTP_EMAIL");
-		email.setValue(SMTP_EMAIL);
-		
-		DBSiteSetting password = new DBSiteSetting();
-		password.setKey("SMTP_PASSWORD");
-		password.setValue(SMTP_PASSWORD);
-		
-		DBSiteSetting server = new DBSiteSetting();
-		server.setKey("SMTP_SERVER");
-		server.setValue(SMTP_SERVER);
-		
-		try {
-			session.beginTransaction();
-			session.save(email);
-			session.save(password);
-			session.save(server);
-			session.getTransaction().commit();
-		} catch (Exception e) {
-			session.getTransaction().rollback();
-			System.err.println("Failed to set email settings");
+		try (Session session = sessionFactory.openSession()) {
+			
+			DBSiteSetting email = new DBSiteSetting();
+			email.setKey("SMTP_EMAIL");
+			email.setValue(SMTP_EMAIL);
+			
+			DBSiteSetting password = new DBSiteSetting();
+			password.setKey("SMTP_PASSWORD");
+			password.setValue(SMTP_PASSWORD);
+			
+			DBSiteSetting server = new DBSiteSetting();
+			server.setKey("SMTP_SERVER");
+			server.setValue(SMTP_SERVER);
+			
+			try {
+				session.beginTransaction();
+				session.save(email);
+				session.save(password);
+				session.save(server);
+				session.getTransaction().commit();
+			} catch (Exception e) {
+				session.getTransaction().rollback();
+				System.err.println("Failed to set email settings");
+			}
+			
+			System.exit(0);
 		}
-		
-		session.close();
-		System.exit(0);
-	}*/
+	}
 	
 	/**
 	 * Send user an email allowing them to reset their password
@@ -710,56 +727,54 @@ public class DB {
 	 * @throws DBRollbackException database rollback (should never happen)
 	 */
 	public static void forgotPassword(String email, String newPassword) throws DBNotFoundException, DBEmailFailedToSendException, DBRollbackException {
-		Session session = DB.sessionFactory.openSession();
-		
-		DBUser user = DB.getUserByEmail(session, email);
-		if (user == null) throw new DBNotFoundException();
-		
-		DBPasswordReset reset = new DBPasswordReset();
-		reset.setUser(user);
-		reset.setDate(System.currentTimeMillis());
-		reset.setToken(generateLoginToken(session));
-		reset.setNewHashedPassword(BCrypt.hashpw(newPassword, BCrypt.gensalt()));
-		
-		String body = "To reset your password, <a href=http://localhost:8080/resetpassword/" + 
+		try (Session session = sessionFactory.openSession()) {
+			
+			DBUser user = DB.getUserByEmail(session, email);
+			if (user == null) throw new DBNotFoundException();
+			
+			DBPasswordReset reset = new DBPasswordReset();
+			reset.setUser(user);
+			reset.setDate(System.currentTimeMillis());
+			reset.setToken(generateURLToken(session));
+			reset.setNewHashedPassword(BCrypt.hashpw(newPassword, BCrypt.gensalt()));
+			
+			String body = "To reset your password, <a href=http://localhost:8080/resetpassword/" + 
 				reset.getToken() + 
-				">click here</a> or copy/paste the following link to your browser: http://localhost:8080/resetpassword/" + 
-				reset.getToken() +
-				"<br/>This link will expire in 24 hours.";
-		if (!DB.sendEmail(user.getEmail(), "Blog password reset", body, session)) throw new DB.DBEmailFailedToSendException();
-		
-		session.beginTransaction();
-		try {
-			session.save(reset);
-			session.getTransaction().commit();
-		} catch (Exception e) {
-			session.getTransaction().rollback();
-			throw new DBRollbackException();
+				">click here</a>.<br/>This link will expire in 24 hours.";
+			if (!DB.sendEmail(user.getEmail(), "Blog password reset", body, session)) throw new DB.DBEmailFailedToSendException();
+			
+			session.beginTransaction();
+			try {
+				session.save(reset);
+				session.getTransaction().commit();
+			} catch (Exception e) {
+				session.getTransaction().rollback();
+				throw new DBRollbackException();
+			}
+			
 		}
-		
-		session.close();
 	}
 	
 	public static void resetPassword(String token) throws DBNotFoundException, DBRollbackException {
-		Session session = DB.sessionFactory.openSession();
-		
-		List<DBPasswordReset> list = session.createQuery("from DBPasswordReset where token='" + token + "'", DBPasswordReset.class).list();
-		if (list.size() < 1) throw new DBNotFoundException();
-		DBPasswordReset pr = list.get(0);
-		DBUser user = pr.getUser();
-		
-		try {
-			session.beginTransaction();
-			user.setHashedPassword(pr.getNewHashedPassword());
-			pr.setUser(null);
-			session.merge(user);
-			session.delete(pr);
-			session.getTransaction().commit();
-		} catch (Exception e) {
-			session.getTransaction().rollback();
-			throw new DBRollbackException();
+		try (Session session = sessionFactory.openSession()) {
+			
+			List<DBPasswordReset> list = session.createQuery("from DBPasswordReset where token='" + token + "'", DBPasswordReset.class).list();
+			if (list.size() < 1) throw new DBNotFoundException();
+			DBPasswordReset pr = list.get(0);
+			DBUser user = pr.getUser();
+			
+			try {
+				session.beginTransaction();
+				user.setHashedPassword(pr.getNewHashedPassword());
+				pr.setUser(null);
+				session.merge(user);
+				session.delete(pr);
+				session.getTransaction().commit();
+			} catch (Exception e) {
+				session.getTransaction().rollback();
+				throw new DBRollbackException();
+			}
 		}
-		session.close();
 	}
 	
 	/**
@@ -777,8 +792,23 @@ public class DB {
 			StringBuilder sb = new StringBuilder();
 			for (int i=0; i<200; ++i) sb.append(list.get(r.nextInt(list.size())));
 			if (session.createQuery("from DBLoginSession where token='" + sb.toString() + "'").list().size() != 0) continue;
-			else if (session.createQuery("from DBPasswordReset where token='" + sb.toString() + "'").list().size() != 0) continue;
 			else return sb.toString();
+		}
+	}
+	
+	private static String generateURLToken(Session session) {
+		{
+			List<Character> list = new ArrayList<>();
+			Random r = new Random();
+			for (char c='a'; c<='z'; ++c) list.add(c);
+			for (char c='A'; c<='Z'; ++c) list.add(c);
+			for (char c='0'; c<='9'; ++c) list.add(c);
+			while (true) {
+				StringBuilder sb = new StringBuilder();
+				for (int i=0; i<32; ++i) sb.append(list.get(r.nextInt(list.size())));
+				if (session.createQuery("from DBPasswordReset where token='" + sb.toString() + "'").list().size() != 0) continue;
+				else return sb.toString();
+			}
 		}
 	}
 	
